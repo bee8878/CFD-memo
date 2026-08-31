@@ -1,4 +1,4 @@
-# CFD MEMO
+# CFD-memo
 
 Repository configuration for CFD memo and research application work.
 
