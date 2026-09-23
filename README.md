@@ -1,15 +1,27 @@
-# CFD-memo
+# CFD-Memo
 
-Repository configuration for CFD memo and research application work.
+CFD-Memo is a Python research prototype for planning, generating, validating,
+running, diagnosing, and recording OpenFOAM simulations. The current baseline
+supports one real scenario: two-dimensional incompressible laminar flow around
+a cylinder using Foundation OpenFOAM 10.
 
-This repository is set up to upload only safe guidance/configuration files by default. Sensitive research materials, application forms, schedules, spreadsheets, and student-related documents should remain local.
+Implementation, tests, schemas, templates, and detailed usage are under
+[`cfd-memo-agent/`](cfd-memo-agent/). The current roadmap is
+[`CFD-Agent-Roadmap.md`](CFD-Agent-Roadmap.md).
 
-## Files
+## Quick Check
 
-- `AGENTS.md`: contributor and agent guidelines for this repository.
-- `.gitignore`: ignore rules for sensitive local materials, temporary files, caches, and generated exports.
-- `科研立项/`: local-only research documents and application materials; intentionally ignored by Git.
+```powershell
+cd cfd-memo-agent
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+The verified engineering path is `blockMesh -> checkMesh -> icoFoam` through
+Ubuntu 22.04 on WSL2. Engineering completion does not imply physical validation;
+force coefficients and mesh/time-step independence remain future work.
 
 ## Privacy
 
-Do not upload local research files or force-add ignored documents unless each file has been explicitly confirmed safe to share.
+Sensitive research materials under `科研立项/`, local Python environments,
+generated CFD runs, Ubuntu/OpenFOAM installations, and machine-local caches are
+ignored. Do not force-add them or upload credentials and personal information.

@@ -1,0 +1,12 @@
+Create time
+
+Create mesh for time = 0
+
+Time = 0.005
+DICPCG:  Solving for p, Initial residual = 0.0012, Final residual = 8.0e-07, No Iterations 12
+smoothSolver:  Solving for Ux, Initial residual = 0.0025, Final residual = 9.0e-06, No Iterations 3
+
+Time = 10
+ExecutionTime = 12.4 s  ClockTime = 13 s
+End
+

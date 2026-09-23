@@ -1,0 +1,12 @@
+Create time
+
+Create mesh for time = 0
+
+--> FOAM FATAL IO ERROR:
+Cannot find patchField entry for outlet
+
+file: 0/U/boundaryField from line 18 to line 44.
+
+From function GeometricBoundaryField
+FOAM exiting
+

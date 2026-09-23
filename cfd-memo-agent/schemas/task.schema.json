@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/cfd-memo-agent/task.schema.json",
+  "title": "CFD Task",
+  "type": "object",
+  "required": ["task_id", "case_type", "solver", "geometry", "physics", "boundary_conditions", "time_control"],
+  "properties": {
+    "task_id": { "type": "string" },
+    "case_type": { "const": "cylinder-2d" },
+    "solver": { "enum": ["icoFoam", "pimpleFoam"] },
+    "geometry": {
+      "type": "object",
+      "required": ["dimension", "cylinder_diameter", "domain_length", "domain_height"],
+      "properties": {
+        "dimension": { "const": "2D" },
+        "cylinder_diameter": { "type": "number", "exclusiveMinimum": 0 },
+        "domain_length": { "type": "number", "exclusiveMinimum": 0 },
+        "domain_height": { "type": "number", "exclusiveMinimum": 0 }
+      },
+      "additionalProperties": true
+    },
+    "physics": {
+      "type": "object",
+      "required": ["flow_model", "reynolds_number", "inlet_velocity", "kinematic_viscosity"],
+      "properties": {
+        "flow_model": { "const": "incompressible_laminar" },
+        "reynolds_number": { "type": "number", "exclusiveMinimum": 0 },
+        "inlet_velocity": { "type": "number", "exclusiveMinimum": 0 },
+        "kinematic_viscosity": { "type": "number", "exclusiveMinimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "boundary_conditions": {
+      "type": "object",
+      "required": ["inlet", "outlet", "cylinder", "top", "bottom", "frontAndBack"],
+      "additionalProperties": {
+        "type": "object",
+        "required": ["U", "p"],
+        "properties": {
+          "U": { "type": "string" },
+          "p": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "mesh": {
+      "type": "object",
+      "properties": {
+        "generator": { "enum": ["blockMesh", "snappyHexMesh", "manual-template"] },
+        "target_cells": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": true
+    },
+    "time_control": {
+      "type": "object",
+      "required": ["start_time", "end_time", "delta_t", "write_interval"],
+      "properties": {
+        "start_time": { "type": "number", "minimum": 0 },
+        "end_time": { "type": "number", "exclusiveMinimum": 0 },
+        "delta_t": { "type": "number", "exclusiveMinimum": 0 },
+        "write_interval": { "type": "number", "exclusiveMinimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "convergence": {
+      "type": "object",
+      "properties": {
+        "residual_target": { "type": "number", "exclusiveMinimum": 0 },
+        "max_corrections": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

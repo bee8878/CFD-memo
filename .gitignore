@@ -1,4 +1,13 @@
 # Windows and editor files
+# Python environments and generated files
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
 Thumbs.db
 Desktop.ini
 .DS_Store
@@ -15,7 +24,7 @@ Desktop.ini
 # Sensitive local research materials
 科研立项/
 
-# Local caches and generated output
+# Generated outputs and local scratch files
 .cache/
 .tmp/
 tmp/
@@ -23,6 +32,10 @@ temp/
 output/
 outputs/
 exports/
+
+# Local generated CFD runs; keep curated sample logs
+cfd-memo-agent/cases/runs/*
+!cfd-memo-agent/cases/runs/sample-logs/
 
 # Agent/runtime local state
 .codex/cache/

@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/cfd-memo-agent/episode.schema.json",
+  "title": "CFD-Memo Episode",
+  "type": "object",
+  "required": ["episode_id", "task_id", "mode", "status", "case_summary", "log_summary", "reflection", "reuse_tags"],
+  "properties": {
+    "episode_id": { "type": "string" },
+    "task_id": { "type": ["string", "null"] },
+    "mode": { "enum": ["no_memory", "simple_cache", "cfd_memo"] },
+    "status": { "enum": ["success", "failed", "simulated_success", "simulated_failed", "completed", "blocked", "timeout", "execution_error", "interrupted"] },
+    "case_summary": {
+      "type": ["object", "null"],
+      "required": ["case_type", "solver", "case_path"],
+      "properties": {
+        "case_type": { "type": "string" },
+        "solver": { "type": "string" },
+        "case_path": { "type": "string" },
+        "generated_files": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+    "log_summary": {
+      "type": ["object", "null"],
+      "required": ["log_path", "error_type", "residual_summary"],
+      "properties": {
+        "log_path": { "type": "string" },
+        "error_type": { "type": ["string", "null"] },
+        "residual_summary": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "diagnosis": {
+      "type": "object",
+      "properties": {
+        "root_cause": { "type": "string" },
+        "suggested_fix": { "type": "string" },
+        "correction_count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "reflection": {
+      "type": "object",
+      "required": ["success_factors", "failure_causes", "reusable_rules"],
+      "properties": {
+        "success_factors": { "type": "array", "items": { "type": "string" } },
+        "failure_causes": { "type": "array", "items": { "type": "string" } },
+        "reusable_rules": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "reuse_tags": { "type": "array", "items": { "type": "string" } },
+    "schema_version": { "const": 2 },
+    "task": { "type": ["object", "null"] },
+    "input": {
+      "type": "object",
+      "required": ["kind", "description", "task_path", "raw_text"],
+      "properties": {
+        "kind": { "enum": ["description", "task_file"] },
+        "description": { "type": ["string", "null"] },
+        "task_path": { "type": ["string", "null"] },
+        "raw_text": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "runner_mode": { "enum": ["simulated", "real"] },
+    "physical_validated": { "const": false },
+    "started_at": { "type": "string" },
+    "workflow_path": { "type": "string" },
+    "episode_path": { "type": "string" },
+    "report_path": { "type": "string" },
+    "max_corrections": { "type": "integer", "minimum": 0 },
+    "findings": { "type": "array", "items": { "$ref": "#/$defs/finding" } },
+    "stop_reason": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": { "code": { "type": "string" }, "message": { "type": "string" } },
+      "additionalProperties": false
+    },
+    "injected_fault": {
+      "type": ["object", "null"],
+      "required": ["name", "changes"],
+      "properties": {
+        "name": { "enum": ["missing-boundary", "bad-transport"] },
+        "changes": { "type": "array", "items": { "$ref": "#/$defs/change" } }
+      },
+      "additionalProperties": false
+    },
+    "corrections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["from_round", "to_round", "reason_codes", "changes"],
+        "properties": {
+          "from_round": { "type": "integer", "minimum": 0 },
+          "to_round": { "type": "integer", "minimum": 1 },
+          "reason_codes": { "type": "array", "items": { "type": "string" } },
+          "changes": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/change" } }
+        },
+        "additionalProperties": false
+      }
+    },
+    "rounds": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["index", "run_path", "case_path", "status", "execution_path", "validation_path",
+                     "config_valid", "log_paths", "residuals", "findings", "runtime_blockers"],
+        "properties": {
+          "index": { "type": "integer", "minimum": 0 },
+          "run_path": { "type": "string" },
+          "case_path": { "type": ["string", "null"] },
+          "status": { "enum": ["preparing", "validation_failed", "simulated_success", "completed",
+                               "failed", "blocked", "environment_error", "timeout", "execution_error", "interrupted"] },
+          "execution_path": { "type": ["string", "null"] },
+          "validation_path": { "type": ["string", "null"] },
+          "config_valid": { "type": "boolean" },
+          "environment": { "type": ["object", "null"] },
+          "mesh_evidence": { "type": ["object", "null"] },
+          "result_evidence": { "type": ["object", "null"] },
+          "log_paths": { "type": "array", "items": { "type": "string" } },
+          "residuals": { "type": "array", "items": { "type": "object" } },
+          "findings": { "type": "array", "items": { "$ref": "#/$defs/finding" } },
+          "runtime_blockers": { "type": "array", "items": { "$ref": "#/$defs/finding" } }
+        },
+        "additionalProperties": false
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "properties": {
+        "elapsed_seconds": { "type": "number", "minimum": 0 },
+        "config_valid": { "type": "boolean" },
+        "experience_reused": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "required": ["code", "message", "location"],
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" },
+        "location": { "type": "string" },
+        "evidence": { "type": "string" },
+        "action": { "enum": ["rule_candidate", "user_clarification", "manual_required"] },
+        "suggestion": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "change": {
+      "type": "object",
+      "required": ["file", "before", "after"],
+      "properties": {
+        "file": { "enum": ["0/U", "0/p", "constant/physicalProperties"] },
+        "before": { "type": "string" },
+        "after": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {
+      "if": { "required": ["schema_version"] },
+      "then": {
+        "required": ["task", "input", "runner_mode", "physical_validated", "started_at",
+                     "workflow_path", "episode_path", "report_path", "max_corrections",
+                     "findings", "stop_reason", "rounds", "corrections", "injected_fault", "metrics", "diagnosis"],
+        "properties": {
+          "mode": { "const": "no_memory" },
+          "status": { "enum": ["simulated_success", "completed", "failed", "blocked", "timeout", "execution_error", "interrupted"] },
+          "metrics": { "properties": { "experience_reused": { "const": false } } }
+        }
+      }
+    }
+  ]
+}

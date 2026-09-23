@@ -1,0 +1,12 @@
+Create time
+
+Create mesh for time = 0
+
+--> FOAM FATAL IO ERROR:
+wrong token type - expected scalar value for nu
+
+file: constant/physicalProperties at line 10.
+
+Expected kinematic viscosity for Re=100 with U=1 and D=1: nu = 0.01.
+
+FOAM exiting

@@ -1,0 +1,47 @@
+{
+  "episode_id": "episode-cylinder-2d-re100-simulated",
+  "task_id": "task-cylinder-2d-re100",
+  "mode": "cfd_memo",
+  "status": "simulated_success",
+  "case_summary": {
+    "case_type": "cylinder-2d",
+    "solver": "icoFoam",
+    "case_path": "cases/templates/cylinder-2d",
+    "generated_files": [
+      "0/U",
+      "0/p",
+      "constant/physicalProperties",
+      "system/controlDict",
+      "system/fvSchemes",
+      "system/fvSolution",
+      "system/blockMeshDict"
+    ]
+  },
+  "log_summary": {
+    "log_path": "cases/runs/sample-logs/success.log",
+    "error_type": null,
+    "residual_summary": "Simulated run reached end time with decreasing Ux and p residuals."
+  },
+  "diagnosis": {
+    "root_cause": "",
+    "suggested_fix": "",
+    "correction_count": 0
+  },
+  "reflection": {
+    "success_factors": [
+      "Boundary names were consistent across mesh and field files.",
+      "Kinematic viscosity matched Re = U * D / nu."
+    ],
+    "failure_causes": [],
+    "reusable_rules": [
+      "For Re=100 cylinder flow with U=1 and D=1, use nu=0.01.",
+      "Keep inlet, outlet, cylinder, top, bottom, and frontAndBack patch names consistent."
+    ]
+  },
+  "reuse_tags": ["cylinder-2d", "re100", "icoFoam", "laminar"],
+  "metrics": {
+    "elapsed_seconds": 0,
+    "config_valid": true,
+    "experience_reused": false
+  }
+}

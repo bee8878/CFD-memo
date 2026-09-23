@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cfd-memo-agent"
+version = "0.1.0"
+description = "Stage B scaffold for a memory-enhanced CFD agent."
+requires-python = ">=3.12"
+dependencies = ["jsonschema>=4.18,<5"]
+
+[project.scripts]
+cfd-memo-agent = "cfd_memo_agent.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

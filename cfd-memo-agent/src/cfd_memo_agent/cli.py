@@ -1,0 +1,146 @@
+"""Command line entry point for CFD-Memo Agent."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+from cfd_memo_agent.diagnoser import diagnose_log
+from cfd_memo_agent.generator import generate_case
+from cfd_memo_agent.planner import plan_task
+from cfd_memo_agent.runner import run_case
+from cfd_memo_agent.runner.execution import COMMANDS, SCENARIOS
+from cfd_memo_agent.correction import FAULTS
+from cfd_memo_agent.workflow import run_workflow
+from cfd_memo_agent.validator import validate_case
+from cfd_memo_agent.validator.foam import read_json
+from cfd_memo_agent.validator.task import issue, new_report
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="CFD-Memo Agent utilities")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    plan_parser = subparsers.add_parser("plan", help="Convert text into a structured CFD task")
+    plan_parser.add_argument("description", help="Natural language CFD task description")
+    plan_parser.add_argument("--output", "-o", type=Path, help="Optional path for the generated task JSON")
+
+    generate_parser = subparsers.add_parser("generate", help="Generate an unverified case scaffold")
+    generate_parser.add_argument("description", nargs="?", help="Natural language task")
+    generate_parser.add_argument("--task", type=Path, help="Read a task JSON instead of text")
+    generate_parser.add_argument("--runs-dir", type=Path, help="Parent directory for new runs")
+    generate_parser.add_argument("--template-dir", type=Path, help="Cylinder scaffold directory")
+
+    validate_parser = subparsers.add_parser("validate", help="Check task and case consistency")
+    validate_parser.add_argument("--run", required=True, type=Path, help="C2 run directory")
+    validate_parser.add_argument("--output", type=Path, help="Save a new report without overwriting")
+
+    run_parser = subparsers.add_parser("run", help="Run a workflow or execute one saved C2 run")
+    run_parser.add_argument("description", nargs="?", help="Natural language task for a workflow")
+    run_parser.add_argument("--task", type=Path, help="Task JSON for a workflow")
+    run_parser.add_argument("--run", type=Path, help="Existing C2 run directory (single execution)")
+    run_parser.add_argument("--runs-dir", type=Path, help="Parent directory for new workflows")
+    run_parser.add_argument("--max-corrections", type=int, help="Maximum automatic corrections")
+    run_parser.add_argument("--fault", choices=FAULTS, help="Inject a first-round simulated configuration fault")
+    run_parser.add_argument("--runner", required=True, choices=("simulated", "real"))
+    run_parser.add_argument("--scenario", choices=tuple(SCENARIOS), help="Simulated log scenario")
+    run_parser.add_argument("--timeout", type=float, default=300.0, help="Timeout per real command in seconds")
+
+    diagnose_parser = subparsers.add_parser("diagnose", help="Diagnose an existing log without running commands")
+    diagnose_parser.add_argument("--log", required=True, type=Path)
+    diagnose_parser.add_argument("--returncode", required=True, type=int, help="Recorded process exit code")
+    diagnose_parser.add_argument("--stage", choices=COMMANDS, default="icoFoam")
+    diagnose_parser.add_argument("--timed-out", action="store_true")
+    diagnose_parser.add_argument("--simulated", action="store_true", help="Label synthetic log evidence")
+    diagnose_parser.add_argument("--output", type=Path, help="Save a new report without overwriting")
+
+    args = parser.parse_args()
+
+    if args.command in {"run", "diagnose", "validate"}:
+        for stream in (sys.stdout, sys.stderr):
+            if hasattr(stream, "reconfigure"):
+                stream.reconfigure(encoding="utf-8")
+
+    if args.command == "run":
+        if sum(value is not None for value in (args.description, args.task, args.run)) != 1:
+            parser.error("run 必须选择需求、--task 或 --run 中的一种输入")
+        if args.run is not None and any(value is not None for value in
+                                        (args.fault, args.max_corrections, args.runs_dir)):
+            parser.error("--run 是 C4 单次执行，不接受 --fault、--max-corrections 或 --runs-dir")
+        if args.run is None and args.scenario is not None:
+            parser.error("--scenario 仅用于 C4 的 --run；工作流故障演示请使用 --fault")
+        try:
+            if args.run is not None:
+                result = run_case(args.run, mode=args.runner, scenario=args.scenario, timeout=args.timeout)
+            else:
+                result = run_workflow(args.description, task_path=args.task, mode=args.runner,
+                                      runs_dir=args.runs_dir, max_corrections=args.max_corrections,
+                                      timeout=args.timeout, fault=args.fault)
+        except (ValueError, OSError) as exc:
+            parser.error(str(exc))
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        raise SystemExit(0 if result["status"] in {"completed", "simulated_success"} else 1)
+
+    if args.command == "diagnose":
+        try:
+            result = diagnose_log(args.log.read_text(encoding="utf-8-sig"),
+                                  returncode=args.returncode, timed_out=args.timed_out,
+                                  stage=args.stage, simulated=args.simulated)
+            rendered = json.dumps(result, ensure_ascii=False, indent=2)
+            if args.output:
+                with args.output.open("x", encoding="utf-8") as handle:
+                    handle.write(rendered + "\n")
+        except (OSError, UnicodeError) as exc:
+            parser.error(f"无法读取日志或新建报告：{exc}")
+        print(rendered)
+        raise SystemExit(0 if result["status"] == "completed" else 1)
+
+    if args.command == "validate":
+        run_dir = args.run.resolve()
+        try:
+            task = read_json(run_dir / "task.json")
+        except (OSError, UnicodeError, ValueError, RecursionError) as exc:
+            report = new_report()
+            report["errors"].append(issue("TASK_READ", f"任务文件无法读取或格式错误：{exc}",
+                                          str(run_dir / "task.json")))
+        else:
+            report = validate_case(task, run_dir / "case")
+        rendered = json.dumps(report, ensure_ascii=False, indent=2)
+        if args.output:
+            try:
+                with args.output.open("x", encoding="utf-8") as handle:
+                    handle.write(rendered + "\n")
+            except OSError as exc:
+                parser.error(f"无法新建报告；不会覆盖已有文件：{exc}")
+        print(rendered)
+        raise SystemExit(0 if report["config_valid"] else 1)
+
+    if args.command == "generate":
+        if bool(args.description) == bool(args.task):
+            parser.error("generate requires either a description or --task, but not both.")
+        try:
+            task = (
+                json.loads(args.task.read_text(encoding="utf-8"))
+                if args.task else plan_task(args.description)
+            )
+            result = generate_case(task, runs_dir=args.runs_dir, template_dir=args.template_dir)
+        except (ValueError, KeyError, TypeError, OSError) as exc:
+            parser.error(str(exc))
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return
+
+    if args.command == "plan":
+        task = plan_task(args.description)
+        rendered = json.dumps(task, ensure_ascii=False, indent=2)
+        if args.output:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(rendered + "\n", encoding="utf-8")
+        else:
+            print(rendered)
+
+
+if __name__ == "__main__":
+    main()
+
