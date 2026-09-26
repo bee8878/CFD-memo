@@ -13,7 +13,11 @@ from cfd_memo_agent.diagnoser import diagnose_validation
 from cfd_memo_agent.generator import generate_case
 from cfd_memo_agent.memory import save_episode
 from cfd_memo_agent.memory.episodes import write_record
-from cfd_memo_agent.planner import plan_task
+from cfd_memo_agent.models import ModelClient, ModelError, ModelSettings
+from cfd_memo_agent.orchestrator import (
+    plan_description, planning_record, prepare_case_writing, review_evidence,
+    task_file_planning_state,
+)
 from cfd_memo_agent.reporter import write_report
 from cfd_memo_agent.runner import run_case
 from cfd_memo_agent.validator import validate_task
@@ -23,7 +27,7 @@ from cfd_memo_agent.validator.task import finite, issue, new_report
 PROJECT = Path(__file__).resolve().parents[2]
 
 
-def _options(description, task_path, mode, max_corrections, timeout, fault):
+def _options(description, task_path, mode, max_corrections, timeout, fault, planner_fallback):
     if (description is None) == (task_path is None):
         raise ValueError("需求与 task_path 必须二选一")
     if description is not None and not isinstance(description, str):
@@ -38,12 +42,16 @@ def _options(description, task_path, mode, max_corrections, timeout, fault):
         raise ValueError("timeout 必须为有限正数")
     if fault is not None and (fault not in FAULTS or mode != "simulated"):
         raise ValueError("受控故障仅支持模拟模式下的 missing-boundary 或 bad-transport")
+    if planner_fallback not in {"stop", "rules"}:
+        raise ValueError("planner_fallback 必须为 stop 或 rules")
 
 
 def run_workflow(description=None, *, task_path=None, mode, runs_dir=None,
-                 max_corrections=None, timeout=300, fault=None) -> dict:
+                 max_corrections=None, timeout=300, fault=None,
+                 planner_fallback="stop", model_settings: ModelSettings | None = None,
+                 model_client: ModelClient | None = None) -> dict:
     """Run C1-C4, optionally repair supported fields, and persist an episode."""
-    _options(description, task_path, mode, max_corrections, timeout, fault)
+    _options(description, task_path, mode, max_corrections, timeout, fault, planner_fallback)
     parent = Path(runs_dir).resolve() if runs_dir is not None else PROJECT / "cases/runs"
     template = (PROJECT / "cases/templates").resolve()
     if parent == template or template in parent.parents:
@@ -57,11 +65,24 @@ def run_workflow(description=None, *, task_path=None, mode, runs_dir=None,
     episode = {
         "schema_version": 2, "episode_id": root.name, "task_id": None, "task": None,
         "input": source, "mode": "no_memory", "runner_mode": mode,
+        "planning": task_file_planning_state() if task_path is not None else {
+            "status": "pending", "requested_provider": None, "actual_mode": None,
+            "fallback_used": False, "fallback_reason": None, "model": None,
+            "prompt_version": None, "trace": None, "assumptions": [],
+            "questions": [], "error": None,
+        },
+        "case_writing": {
+            "status": "pending", "requested_provider": None, "actual_mode": None,
+            "fallback_used": False, "fallback_reason": None, "model": None,
+            "prompt_version": None, "trace": None, "intent": None,
+            "rationale": [], "warnings": [], "blockers": [], "error": None,
+        },
         "status": "failed", "physical_validated": False,
         "started_at": datetime.now(timezone.utc).isoformat(), "workflow_path": str(root),
         "episode_path": str(root / "episode.json"), "report_path": str(root / "report.md"),
         "max_corrections": max_corrections if max_corrections is not None else 2,
-        "rounds": [], "corrections": [], "injected_fault": None, "findings": [],
+        "rounds": [], "reviews": [], "corrections": [], "injected_fault": None,
+        "findings": [],
         "stop_reason": {"code": "NOT_STARTED", "message": "任务尚未完成"},
         "case_summary": None, "log_summary": None,
         "diagnosis": {"root_cause": "", "suggested_fix": "", "correction_count": 0},
@@ -104,12 +125,41 @@ def run_workflow(description=None, *, task_path=None, mode, runs_dir=None,
         return episode
 
     try:
+        selected_settings = model_settings or ModelSettings.from_env()
         if task_path is None:
-            task = plan_task(description)
+            state = plan_description(
+                description, settings=selected_settings, client=model_client,
+                fallback=planner_fallback,
+            )
+            episode["planning"] = planning_record(state)
+            write_record(root / "planning.json", state)
+            if state["status"] != "ready":
+                write_record(root / "input.json", source)
+                code = (
+                    "CLARIFICATION_REQUIRED"
+                    if state["status"] == "needs_clarification"
+                    else "PLANNING_FAILED"
+                )
+                message = "；".join(state["questions"])
+                if not message and state["error"]:
+                    message = state["error"]["message"]
+                problem = issue(code, f"任务规划未完成：{message}", "planner")
+                validation = new_report()
+                validation["errors"] = [problem]
+                write_record(root / "task-validation.json", validation)
+                episode["findings"] = diagnose_validation(validation)["findings"]
+                advice = (
+                    "请回答 Planner 提出的问题后重新运行。"
+                    if code == "CLARIFICATION_REQUIRED"
+                    else "模型规划失败；请检查配置，或显式选择规则回退。"
+                )
+                return finish("failed", code, advice)
+            task = state["task"]
         else:
             source["raw_text"] = Path(task_path).read_text(encoding="utf-8-sig")
             task = parse_json(source["raw_text"])
-    except (OSError, UnicodeError, ValueError, ArithmeticError, RecursionError) as exc:
+            write_record(root / "planning.json", episode["planning"])
+    except (OSError, UnicodeError, ValueError, ArithmeticError, RecursionError, ModelError) as exc:
         write_record(root / "input.json", source)
         problem = issue("INPUT_FAILED", f"任务读取或规划失败：{exc}", "task")
         validation = new_report()
@@ -128,8 +178,27 @@ def run_workflow(description=None, *, task_path=None, mode, runs_dir=None,
     if max_corrections is None:
         episode["max_corrections"] = int(task.get("convergence", {}).get("max_corrections", 2))
     write_record(root / "task.json", task)
+    case_writing = prepare_case_writing(
+        task, settings=selected_settings, client=model_client, fallback=planner_fallback,
+    )
+    episode["case_writing"] = case_writing
+    write_record(root / "case-writing.json", case_writing)
+    if case_writing["status"] != "ready":
+        detail = "；".join(case_writing["blockers"])
+        if not detail and case_writing["error"]:
+            detail = case_writing["error"]["message"]
+        episode["findings"] = [issue(
+            "CASE_WRITING_FAILED", f"Case Writer 未生成可接受的写入计划：{detail}",
+            "case_writer",
+        )]
+        return finish(
+            "failed", "CASE_WRITING_FAILED",
+            "Case Writer 决策未通过，未创建 OpenFOAM case。",
+        )
     try:
-        reference = Path(generate_case(task, runs_dir=root / "reference")["run_path"])
+        reference = Path(generate_case(
+            task, runs_dir=root / "reference", intent=case_writing["intent"],
+        )["run_path"])
     except (OSError, ValueError) as exc:
         episode["findings"] = [issue("GENERATION_FAILED", str(exc), "generator")]
         return finish("failed", "GENERATION_FAILED", "case 生成失败，请检查模板和文件权限。")
@@ -144,7 +213,8 @@ def run_workflow(description=None, *, task_path=None, mode, runs_dir=None,
             "index": index, "run_path": str(round_dir), "case_path": None,
             "status": "preparing", "execution_path": None, "validation_path": None,
             "config_valid": False, "log_paths": [], "residuals": [],
-            "findings": [], "runtime_blockers": [],
+            "findings": [], "runtime_blockers": [], "environment": None,
+            "mesh_evidence": None, "result_evidence": None,
         }
         episode["rounds"].append(record)
         write_record(round_dir / "started.json", record)
@@ -189,8 +259,34 @@ def run_workflow(description=None, *, task_path=None, mode, runs_dir=None,
         blocker_codes = {item["code"] for item in record["runtime_blockers"]}
         record["findings"] = [item for item in outcome["findings"] if item["code"] not in blocker_codes]
         write_record(round_dir / "round.json", record)
-        if outcome["status"] in {"simulated_success", "completed"}:
-            return finish(outcome["status"], "COMPLETED", "本次执行模式的流程已完成；物理结果仍未验证。")
+        review_input = {
+            "round_index": index,
+            "runner_mode": mode,
+            "outcome_status": outcome["status"],
+            "config_valid": record["config_valid"],
+            "task_summary": {
+                "task_id": task["task_id"], "case_type": task["case_type"],
+                "solver": task["solver"],
+            },
+            "findings": record["findings"],
+            "runtime_blockers": record["runtime_blockers"],
+            "physical_validated": False,
+        }
+        review = review_evidence(
+            review_input, settings=selected_settings, client=model_client,
+            fallback=planner_fallback,
+        )
+        review_path = round_dir / "review.json"
+        review.update({"round_index": index, "review_path": str(review_path)})
+        episode["reviews"].append(review)
+        write_record(review_path, review)
+        if review["status"] != "reviewed":
+            return finish(
+                "failed", "REVIEW_FAILED",
+                "Reviewer 决策未通过；未实施修改，也未接受本轮结果。",
+            )
+        if outcome["status"] in {"simulated_success", "completed"} and review["decision"] == "accept":
+            return finish(outcome["status"], "COMPLETED", "本次执行模式的流程已完成；单次运行不等于物理结果已验证。")
         if mode == "real" and any(p["code"] != "MESH_NOT_VERIFIED" for p in record["runtime_blockers"]):
             return finish("blocked", "RUNTIME_BLOCKERS", "真实网格或几何验证尚未完成，需在 C6 处理。")
         if outcome["status"] in {"timeout", "environment_error", "execution_error"}:
@@ -199,6 +295,11 @@ def run_workflow(description=None, *, task_path=None, mode, runs_dir=None,
         if not record["findings"]:
             return finish("blocked", "NO_DIAGNOSTIC", "没有足够诊断证据，停止自动修正。")
         proposal = propose_repairs(task, round_dir / "case", reference / "case", record["findings"])
+        if review["decision"] != "repair":
+            return finish(
+                "failed", proposal["stop_code"] or "REVIEW_STOPPED",
+                "Reviewer 根据现有证据停止自动修正，需人工核对。",
+            )
         if not proposal["changes"]:
             return finish("failed", proposal["stop_code"], "没有可实施的安全修正或没有实际变更，需人工核对。")
         if len(episode["corrections"]) >= episode["max_corrections"]:

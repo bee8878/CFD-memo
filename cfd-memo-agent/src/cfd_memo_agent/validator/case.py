@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from cfd_memo_agent.mesh import cylinder_mesh
+from cfd_memo_agent.mesh import SPAN, cylinder_mesh
 
 from .foam import Group, parse_foam, read_json
 from .task import BOUNDARIES, close, finite, issue, validate_task
@@ -209,6 +209,37 @@ def validate_case(task, case_dir) -> dict:
                 actual = number(scalar(doc, key, relative), f"{relative}.{key}")
                 if report["task_valid"]:
                     compare(actual, task["time_control"][task_key], f"{relative}.{key}")
+            functions = mapping(doc.get("functions"), f"{relative}.functions")
+            force = mapping(functions.get("forceCoeffs"), f"{relative}.functions.forceCoeffs")
+            for key, expected in (("type", "forceCoeffs"), ("writeControl", "timeStep"),
+                                  ("p", "p"), ("U", "U"), ("rho", "rhoInf"),
+                                  ("log", "true")):
+                require(scalar(force, key, relative) == expected, "FORCE_COEFFS",
+                        f"forceCoeffs.{key} 必须为 {expected}",
+                        f"{relative}.functions.forceCoeffs.{key}")
+            libs = entry(force, "libs", relative)
+            require(len(libs) == 1 and group(libs[0], "(", relative) == ["libforces.so"],
+                    "FORCE_COEFFS", "forceCoeffs 必须加载 libforces.so", relative)
+            patches = entry(force, "patches", relative)
+            require(len(patches) == 1 and group(patches[0], "(", relative) == ["cylinder"],
+                    "FORCE_COEFFS", "受力积分面必须是 cylinder", relative)
+            for key, expected in (("liftDir", [0, 1, 0]), ("dragDir", [1, 0, 0]),
+                                  ("pitchAxis", [0, 0, 1]), ("CofR", [0, 0, 0])):
+                values = entry(force, key, relative)
+                require(len(values) == 1, "FORCE_COEFFS", f"{key} 格式错误", relative)
+                actual = [number(v, relative) for v in group(values[0], "(", relative)]
+                require(actual == expected, "FORCE_COEFFS", f"{key} 方向不正确", relative)
+            interval = number(scalar(force, "writeInterval", relative), relative)
+            require(interval.is_integer() and interval > 0, "FORCE_COEFFS",
+                    "受力写出间隔必须是正整数时间步", relative)
+            compare(number(scalar(force, "rhoInf", relative), relative), 1, relative)
+            if report["task_valid"]:
+                compare(number(scalar(force, "magUInf", relative), relative),
+                        task["physics"]["inlet_velocity"], relative)
+                compare(number(scalar(force, "lRef", relative), relative),
+                        task["geometry"]["cylinder_diameter"], relative)
+                compare(number(scalar(force, "Aref", relative), relative),
+                        task["geometry"]["cylinder_diameter"] * SPAN, relative)
         capture(control_check)
 
     if "system/blockMeshDict" in documents:
@@ -219,7 +250,9 @@ def validate_case(task, case_dir) -> dict:
             vertex_list = entry(doc, "vertices", relative)
             if len(vertex_list) == 1 and len(group(vertex_list[0], "(", relative)) != 8:
                 require(report["task_valid"], "GEOMETRY", "任务无效，无法核对圆柱网格", relative)
-                expected_mesh = parse_foam(cylinder_mesh(task["geometry"], task.get("mesh", {}).get("target_cells", 10000)))
+                expected_mesh = parse_foam(cylinder_mesh(
+                    task["geometry"], task.get("mesh", {}).get("target_cells", 10000),
+                    task.get("mesh", {}).get("radial_grading", 10), task.get("mesh", {})))
                 boundary_items = entry(doc, "boundary", relative)
                 require(len(boundary_items) == 1, "BOUNDARY_STRUCTURE", "边界列表无效", relative)
                 named_patches(boundary_items[0], f"{relative}.boundary")
@@ -326,12 +359,32 @@ def validate_case(task, case_dir) -> dict:
             mapping(metadata, relative)
             require(metadata.get("dimension") == "2D" and metadata.get("units") == "m",
                     "GEOMETRY_METADATA", "几何元数据需要 2D 和米单位", relative)
+            compare(metadata.get("span"), SPAN, f"{relative}.span")
             for key in ("cylinder_diameter", "domain_length", "domain_height"):
                 actual = metadata.get(key)
                 require(finite(actual) and actual > 0, "GEOMETRY_METADATA",
                         "几何尺寸必须为有限正数", f"{relative}.{key}")
                 if report["task_valid"]:
                     compare(actual, task["geometry"][key], f"{relative}.{key}")
+            if report["task_valid"]:
+                expected_upstream = task["geometry"].get(
+                    "upstream_length", task["geometry"]["domain_length"] / 2)
+                expected_downstream = task["geometry"].get(
+                    "downstream_length", task["geometry"]["domain_length"] / 2)
+                compare(metadata.get("upstream_length", metadata["domain_length"] / 2), expected_upstream,
+                        f"{relative}.upstream_length")
+                compare(metadata.get("downstream_length", metadata["domain_length"] / 2), expected_downstream,
+                        f"{relative}.downstream_length")
+                compare(metadata.get("radial_grading", 10),
+                        task.get("mesh", {}).get("radial_grading", 10),
+                        f"{relative}.radial_grading")
+                require(metadata.get("local_refinement", {}) == {
+                    key: task["mesh"][key] for key in (
+                        "near_field_radius", "angular_cells", "wake_angular_cells",
+                        "near_radial_cells", "far_radial_cells", "near_radial_grading",
+                        "far_radial_grading") if key in task.get("mesh", {})},
+                    "MESH_METADATA", "局部网格元数据与任务不一致",
+                    f"{relative}.local_refinement")
         capture(geometry_check)
 
     report["config_valid"] = report["task_valid"] and not errors

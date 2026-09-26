@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 
 from cfd_memo_agent.validator.foam import Group, parse_foam
-from cfd_memo_agent.mesh import mesh_resolution
+from cfd_memo_agent.mesh import planned_cells
 
 
 def fingerprint(case):
@@ -42,7 +42,8 @@ def mesh_evidence(case, task):
     if neighbour_count != len(neighbour) or not all(isinstance(i, str) and i.isdigit() for i in neighbour):
         raise ValueError('Invalid mesh neighbour list')
     cells = max(map(int, owner + neighbour)) + 1
-    if cells != mesh_resolution(task.get('mesh', {}).get('target_cells', 10000))[2]:
+    mesh_options = task.get('mesh', {})
+    if cells != planned_cells(mesh_options.get('target_cells', 10000), mesh_options):
         raise ValueError('Actual cell count differs from generated block resolution')
     point_count, points = foam_list(mesh / 'points')
     if point_count != len(points) or not points:

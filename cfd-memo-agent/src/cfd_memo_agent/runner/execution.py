@@ -19,6 +19,7 @@ from cfd_memo_agent.validator.foam import read_json
 from cfd_memo_agent.validator.task import issue, new_report
 from .backend import discover, execute_wsl
 from .evidence import mesh_evidence, field_evidence, fingerprint
+from .physics import force_coefficient_evidence
 
 SAMPLE_LOGS = Path(__file__).resolve().parents[3] / "cases/runs/sample-logs"
 SCENARIOS = {"success": 0, "missing-boundary": 1, "bad-transport": 1, "unknown-failure": 1}
@@ -76,7 +77,7 @@ def run_case(run_dir: Path | str, *, mode: str, scenario: str | None = None,
         raise ValueError("真实模式不能选择模拟场景")
     if scenario is not None and scenario not in SCENARIOS:
         raise ValueError("未知模拟场景")
-    # Preserve a caller-provided no-space junction used by the WSL OpenFOAM backend.
+    # Preserve the caller's lexical path for the WSL OpenFOAM backend.
     root = Path(run_dir).absolute()
     if not root.is_dir():
         raise ValueError(f"运行目录不存在：{root}")
@@ -191,6 +192,9 @@ def run_case(run_dir: Path | str, *, mode: str, scenario: str | None = None,
                         _save(attempt / "mesh-evidence.json", report["mesh_evidence"])
                     if stage == "icoFoam":
                         report["result_evidence"] = field_evidence(case, task, report["mesh_evidence"])
+                        force = force_coefficient_evidence(case, task)
+                        report["result_evidence"]["force_coefficients"] = force
+                        _save(attempt / "force-evidence.json", force)
                         _save(attempt / "result-evidence.json", report["result_evidence"])
                 except (OSError, ValueError, TypeError, KeyError) as exc:
                     report["status"] = "failed"

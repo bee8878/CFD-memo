@@ -26,7 +26,16 @@ def diagnose_validation(report: dict) -> dict:
         if location.startswith("task"):
             action = "user_clarification"
             suggestion = "核对任务参数和物理意图，确认后重新生成配置。"
-        elif report["task_valid"] and code in {"VALUE_MISMATCH", "BOUNDARY_NAMES", "BOUNDARY_TYPE"}:
+        elif report["task_valid"] and (
+            code in {
+                "VALUE_MISMATCH", "BOUNDARY_NAMES", "BOUNDARY_TYPE",
+                "FIELD_VALUE", "CONFIG_STRUCTURE",
+            }
+            or (
+                location.startswith("constant/physicalProperties")
+                and code in {"CONFIG_NUMBER", "CONFIG_ENTRY", "DIMENSIONS"}
+            )
+        ):
             action = "rule_candidate"
             suggestion = "核对有效任务与配置差异，后续可按任务重新生成对应字段并复验。"
         else:

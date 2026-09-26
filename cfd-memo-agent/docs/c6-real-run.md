@@ -8,9 +8,9 @@ Ubuntu 虚拟磁盘位于 `D:\CFD-Environment\Ubuntu-22.04`，安装镜像位于
 `blockMesh`、`checkMesh`、`icoFoam` 已手工通过，Python runner 也在独立 attempt
 中完成三阶段运行。默认网格 10368 个单元，圆柱边界 288 个面，最终生成 `10/U` 和 `10/p`。
 
-工程执行部分已经完成，但阻力、升力、Strouhal 数以及网格/时间步独立性尚未验证，
-所以 `physical_validated=false`。`D:\CFD_MEMO` 当前是指向原仓库的无空格目录入口；
-当前 Codex 工作区退出后，才可把原目录物理重命名为该名称。
+工程执行、阻力/升力/Strouhal 数参考对照以及网格/时间步独立性已经通过。
+汇总研究为 `physical_validated=true`，该结论仅适用于固定的 Re=100 二维圆柱 benchmark。项目已经正式重命名为无空格目录 `D:\CFD_MEMO`，
+不再依赖 Junction 入口。
 
 ## 安装环境
 
@@ -78,9 +78,17 @@ icoFoam > icoFoam.log 2>&1
 ```
 
 这是新工作流，不复用手工运行结果。Windows 路径作为独立参数传入 WSL。
-Foundation OpenFOAM 10 会拒绝带空格的 case 路径，因此当前通过 `D:\CFD_MEMO` 入口运行。
+Foundation OpenFOAM 10 会拒绝带空格的 case 路径，因此项目使用实际目录 `D:\CFD_MEMO`。
 每个命令独立计时；WSL 使用 Linux watchdog 和本次进程组清理，可能有少量清理等待时间。
 不关闭整个 WSL，也不自动提高超时或修改物理参数。
+
+物理验收使用长时任务并运行固定的八组对照：
+
+```powershell
+.\.venv\Scripts\python.exe -m cfd_memo_agent.cli physics-study --task examples/task.cylinder-2d-physical.json --timeout 1800
+```
+
+该命令提取 `forceCoeffs`，计算平均阻力系数、升力振幅和 Strouhal 数，并比较网格与时间步变化。已有研究可以用 `--resume <study目录>` 只补跑缺失变体。原单环网格的 `Cl` 未收敛后，双环 wake-focused 网格把近场、尾迹和远场分开控制；29440 到 47200 单元的 `Cd/Cl/St` 变化均通过门槛。
 
 ## 输出与限制
 
@@ -88,7 +96,8 @@ Foundation OpenFOAM 10 会拒绝带空格的 case 路径，因此当前通过 `D
 - 同一个 `case/10/`：默认结束时刻的速度 U 和运动学压力 p。
 - attempt 内的三个 `.log`、`execution.json`：命令、环境、退出码及诊断。
 - `mesh-evidence.json`：实际单元数、非空边界、配置与网格指纹。
-- `result-evidence.json`：结束时刻、有限数值和内部场长度检查、场文件路径。
+- `result-evidence.json`：结束时刻、有限数值、内部场长度检查、场文件路径及 `Cd/Cl/St` 摘要。
+- `force-evidence.json`：本轮 `forceCoeffs` 原始文件位置、周期统计和参考区间对照。
 - 工作流根目录的 `episode.json`、`report.md`：汇总证据。
 
 网格由本项目 `mesh.py` 编写，不是复制某个已发表 benchmark。
@@ -98,5 +107,4 @@ Foundation OpenFOAM 10 会拒绝带空格的 case 路径，因此当前通过 `D
 不使用解析器尚不支持的变量展开。
 默认网格已通过真实 `checkMesh`；几何比例极端的任务仍可能失败，不保证任意尺寸都可运行。
 
-`completed` 只表示真实执行及基本文件检查通过。阻力、升力、涡脱落频率、网格与时间步独立性
-尚未验证，`physical_validated` 始终为 false。没有长期记忆检索，也没有接入大模型。
+单次 `completed` 只表示真实执行及基本文件检查通过；只有完整研究矩阵才能设置汇总的 `physical_validated=true`。当前结论不适用于其他 Re、几何、求解器或湍流模型。项目尚无长期记忆检索，也没有接入大模型。

@@ -15,7 +15,9 @@
         "dimension": { "const": "2D" },
         "cylinder_diameter": { "type": "number", "exclusiveMinimum": 0 },
         "domain_length": { "type": "number", "exclusiveMinimum": 0 },
-        "domain_height": { "type": "number", "exclusiveMinimum": 0 }
+        "domain_height": { "type": "number", "exclusiveMinimum": 0 },
+        "upstream_length": { "type": "number", "exclusiveMinimum": 0 },
+        "downstream_length": { "type": "number", "exclusiveMinimum": 0 }
       },
       "additionalProperties": true
     },
@@ -47,7 +49,24 @@
       "type": "object",
       "properties": {
         "generator": { "enum": ["blockMesh", "snappyHexMesh", "manual-template"] },
-        "target_cells": { "type": "integer", "minimum": 1 }
+        "target_cells": { "type": "integer", "minimum": 1 },
+        "radial_grading": { "type": "number", "minimum": 1 },
+        "near_field_radius": { "type": "number", "exclusiveMinimum": 0 },
+        "angular_cells": { "type": "integer", "minimum": 8 },
+        "wake_angular_cells": { "type": "integer", "minimum": 8 },
+        "near_radial_cells": { "type": "integer", "minimum": 4 },
+        "far_radial_cells": { "type": "integer", "minimum": 4 },
+        "near_radial_grading": { "type": "number", "minimum": 1 },
+        "far_radial_grading": { "type": "number", "minimum": 1 }
+      },
+      "dependentRequired": {
+        "near_field_radius": ["angular_cells", "near_radial_cells", "far_radial_cells"],
+        "angular_cells": ["near_field_radius"],
+        "wake_angular_cells": ["near_field_radius"],
+        "near_radial_cells": ["near_field_radius"],
+        "far_radial_cells": ["near_field_radius"],
+        "near_radial_grading": ["near_field_radius"],
+        "far_radial_grading": ["near_field_radius"]
       },
       "additionalProperties": true
     },

@@ -4,13 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from cfd_memo_agent.mesh import cylinder_mesh, mesh_resolution
+from cfd_memo_agent.mesh import cylinder_mesh, mesh_resolution, planned_cells
 from cfd_memo_agent.planner import plan_task
 from cfd_memo_agent.generator import generate_case
 from cfd_memo_agent.validator import validate_case
 from cfd_memo_agent.validator.foam import parse_foam
 from cfd_memo_agent.runner import backend, execution
 from cfd_memo_agent.runner.evidence import mesh_evidence, field_evidence
+from cfd_memo_agent.runner.physics import force_coefficient_evidence, read_force_coefficients
 
 
 @pytest.fixture
@@ -52,6 +53,23 @@ def write_fields(case):
             ('inlet', 'outlet', 'top', 'bottom', 'cylinder', 'frontAndBack')) + '}', encoding='utf-8')
 
 
+def write_forces(case, *, malformed=None):
+    folder = case / 'postProcessing/forceCoeffs/0'
+    folder.mkdir(parents=True, exist_ok=True)
+    lines = ['# Force coefficients', '# Time Cm Cd Cl Cl(f) Cl(r)']
+    for index in range(101):
+        time = index / 10
+        phase = 2 * math.pi * time / 0.8
+        cd = 1.35 + 0.01 * math.cos(2 * phase)
+        cl = 0.28 * math.sin(phase)
+        lines.append(f'{time:.1f} 0 {cd:.12g} {cl:.12g} {cl/2:.12g} {cl/2:.12g}')
+    if malformed == 'nan':
+        lines[-1] = lines[-1].replace(' 0 ', ' nan ', 1)
+    elif malformed == 'columns':
+        lines[-1] = '10 0 1.35'
+    (folder / 'coefficient.dat').write_text('\n'.join(lines) + '\n', encoding='utf-8')
+
+
 def test_ogrid_has_round_surface_eight_positive_blocks_and_two_dimensional_layers(case_data):
     task, case = case_data
     doc = parse_foam((case / 'system/blockMeshDict').read_text())
@@ -78,6 +96,41 @@ def test_template_matches_default_mesh():
     assert parse_foam(template.read_text()) == parse_foam(cylinder_mesh(task['geometry']))
 
 
+def test_physical_domain_supports_asymmetric_far_field(tmp_path):
+    task = plan_task('cylinder flow')
+    task['geometry'].update(domain_length=40, domain_height=30,
+                            upstream_length=10, downstream_length=30)
+    task['mesh']['radial_grading'] = 100
+    generated = generate_case(task, runs_dir=tmp_path)
+    case = Path(generated['case_path'])
+    doc = parse_foam((case / 'system/blockMeshDict').read_text())
+    vertices = [[float(x) for x in item.items] for item in doc['vertices'][0].items]
+    assert min(point[0] for point in vertices) == -10
+    assert max(point[0] for point in vertices) == 30
+    assert min(point[1] for point in vertices) == -15
+    assert max(point[1] for point in vertices) == 15
+    assert doc['blocks'][0].items[4].items[0] == '100'
+    assert validate_case(task, case)['config_valid']
+
+
+def test_wake_focused_mesh_has_two_radial_rings_and_independent_counts(tmp_path):
+    task = plan_task('cylinder flow')
+    task['geometry'].update(domain_length=60, domain_height=60)
+    task['mesh'].update(target_cells=29440, radial_grading=100,
+                        near_field_radius=10, angular_cells=40, wake_angular_cells=64,
+                        near_radial_cells=64, far_radial_cells=16,
+                        near_radial_grading=20, far_radial_grading=10)
+    generated = generate_case(task, runs_dir=tmp_path)
+    case = Path(generated['case_path'])
+    doc = parse_foam((case / 'system/blockMeshDict').read_text())
+    vertices = doc['vertices'][0].items
+    blocks = doc['blocks'][0].items
+    assert len(vertices) == 48 and len(blocks) == 80
+    assert len(doc['edges'][0].items) == 128
+    assert planned_cells(29440, task['mesh']) == 29440
+    assert validate_case(task, case)['config_valid']
+
+
 def test_output_evidence_uses_actual_files(case_data):
     task, case = case_data
     write_mesh(case)
@@ -87,6 +140,32 @@ def test_output_evidence_uses_actual_files(case_data):
     result = field_evidence(case, task, mesh)
     assert result['end_time'] == 10 and result['physical_validated'] is False
     assert Path(result['fields']['U']).is_file()
+
+
+def test_force_coefficients_are_task_scaled_and_periodic(case_data):
+    task, case = case_data
+    doc = parse_foam((case / 'system/controlDict').read_text())
+    force = doc['functions']['forceCoeffs']
+    assert force['patches'][0].items == ['cylinder']
+    assert float(force['magUInf'][0]) == task['physics']['inlet_velocity']
+    assert float(force['lRef'][0]) == task['geometry']['cylinder_diameter']
+    assert float(force['Aref'][0]) == task['geometry']['cylinder_diameter'] * 0.1
+    write_forces(case)
+    rows, paths = read_force_coefficients(case)
+    evidence = force_coefficient_evidence(case, task)
+    assert len(rows) == 101 and paths[0].endswith('coefficient.dat')
+    assert math.isclose(evidence['mean_cd'], 1.35, rel_tol=2e-3)
+    assert math.isclose(evidence['strouhal'], 1.25, rel_tol=1e-8)
+    assert evidence['complete_periods'] >= 5 and evidence['signal_valid']
+
+
+@pytest.mark.parametrize('damage', ['missing', 'nan', 'columns'])
+def test_force_coefficient_damage_rejected(case_data, damage):
+    task, case = case_data
+    if damage != 'missing':
+        write_forces(case, malformed=damage)
+    with pytest.raises((ValueError, OSError)):
+        force_coefficient_evidence(case, task)
 
 
 @pytest.mark.parametrize('damage', ['missing', 'nan', 'count', 'time', 'config', 'mesh'])
@@ -141,6 +220,7 @@ def test_real_pipeline_requires_fresh_evidence(case_data, monkeypatch, mesh_ok, 
                 write_mesh(output)
         if stage == 'icoFoam' and fields_ok:
             write_fields(output)
+            write_forces(output)
         log.write_text('Mesh OK.\nEnd\n' if stage == 'checkMesh' else 'End\n')
         return {'returncode': 0, 'timed_out': False, 'duration_seconds': 0.01}
     monkeypatch.setattr(execution, '_execute', execute)

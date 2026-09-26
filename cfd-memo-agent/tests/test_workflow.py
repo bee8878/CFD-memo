@@ -42,6 +42,8 @@ def check_episode(result):
     assert result["stop_reason"]["message"] in report
     for record in result["rounds"]:
         assert read_json(Path(record["run_path"]) / "round.json") == record
+    for review in result["reviews"]:
+        assert read_json(Path(review["review_path"])) == review
     assert not result["metrics"]["experience_reused"]
     assert result["mode"] == "no_memory"
     assert result["physical_validated"] is False
@@ -112,7 +114,8 @@ def test_invalid_input_has_episode_but_no_generated_case(tmp_path, input_text):
 def test_planning_failure_is_reported(tmp_path, description):
     result = workflow.run_workflow(description, mode="simulated", runs_dir=tmp_path)
     assert result["status"] == "failed" and not result["rounds"]
-    assert result["stop_reason"]["code"] == "INPUT_FAILED"
+    assert result["stop_reason"]["code"] == "PLANNING_FAILED"
+    assert result["planning"]["status"] == "failed"
     check_episode(result)
 
 
@@ -259,7 +262,7 @@ def test_bad_options_do_not_create_workflow(tmp_path, options):
 def test_episode_schema_accepts_legacy_and_rejects_missing_v2_fields(tmp_path):
     episode_validator().validate(read_json(PROJECT / "examples/episode.sample.json"))
     result = workflow.run_workflow("cylinder flow", mode="simulated", runs_dir=tmp_path)
-    for field in ("rounds", "runner_mode", "stop_reason"):
+    for field in ("rounds", "runner_mode", "stop_reason", "planning", "case_writing", "reviews"):
         damaged = deepcopy(result)
         del damaged[field]
         with pytest.raises(ValidationError):

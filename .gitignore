@@ -24,6 +24,15 @@ Desktop.ini
 # Sensitive local research materials
 科研立项/
 
+# Local secrets and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+secrets.json
+
 # Generated outputs and local scratch files
 .cache/
 .tmp/

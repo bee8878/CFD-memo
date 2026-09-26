@@ -45,7 +45,7 @@ def discover():
 
 
 def wsl_path(environment, path):
-    # Keep Windows junction aliases intact: OpenFOAM rejects a case path containing spaces.
+    # Preserve the caller's lexical path; OpenFOAM rejects case paths containing spaces.
     return _capture(environment['prefix'] + ['wslpath', '-a', '-u', str(Path(path).absolute())])
 
 
@@ -71,8 +71,8 @@ def execute_wsl(environment, stage, case, log, timeout, execute):
         'kill -KILL -- "-$pid" 2>/dev/null; fi; fi; rm -f -- "$1"'
     )
     try:
-        # Do not launch WSL with the Windows case as cwd: junction resolution can
-        # reintroduce a spaced path before OpenFOAM processes the explicit -case.
+        # Do not launch WSL with the Windows case as cwd: a caller may still pass
+        # a spaced path even though the explicit -case path is safe.
         launch_dir = Path(prefix[0]).resolve().parent
         outcome = execute(command, launch_dir, log, timeout + 10)
         if outcome['returncode'] in (124, 137):

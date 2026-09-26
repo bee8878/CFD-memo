@@ -105,6 +105,11 @@ def ready_backend(monkeypatch):
     monkeypatch.setattr(execution.shutil, "which", lambda name: f"/mock/{name}")
     monkeypatch.setattr(execution, "mesh_evidence", lambda *a: {"mesh_verified": True})
     monkeypatch.setattr(execution, "field_evidence", lambda *a: {"physical_validated": False})
+    monkeypatch.setattr(execution, "force_coefficient_evidence", lambda *a: {
+        "mean_cd": 1.35, "cl_amplitude": 0.28, "cl_rms": 0.2,
+        "strouhal": 0.164, "complete_periods": 6, "signal_valid": True,
+        "physical_validated": False,
+    })
 
 
 def test_real_missing_environment_never_falls_back(generated, ready_backend, monkeypatch):

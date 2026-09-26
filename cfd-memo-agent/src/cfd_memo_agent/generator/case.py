@@ -12,8 +12,9 @@ from typing import Any
 from uuid import uuid4
 
 from cfd_memo_agent.planner import DEFAULT_CYLINDER_TASK
+from cfd_memo_agent.case_writer import validate_case_intent
 from cfd_memo_agent.validator import validate_task
-from cfd_memo_agent.mesh import cylinder_mesh, mesh_resolution
+from cfd_memo_agent.mesh import SPAN, cylinder_mesh, planned_cells
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 REQUIRED_FILES = (
@@ -57,6 +58,7 @@ def generate_case(
     *,
     runs_dir: Path | None = None,
     template_dir: Path | None = None,
+    intent: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Copy the bundled scaffold into a new run; never run OpenFOAM."""
     validation = validate_task(task)
@@ -72,6 +74,8 @@ def generate_case(
         raise ValueError("C2 supports only incompressible laminar flow.")
     if task["boundary_conditions"] != DEFAULT_CYLINDER_TASK["boundary_conditions"]:
         raise ValueError("C2 supports only the default cylinder boundary conditions.")
+    if intent is not None:
+        validate_case_intent(task, intent)
 
     geometry = task["geometry"]
     velocity = _number(task["physics"]["inlet_velocity"], "inlet_velocity")
@@ -104,7 +108,10 @@ def generate_case(
         texts[relative] = path.read_text(encoding="utf-8")
 
     target_cells = task.get("mesh", {}).get("target_cells", 10000)
-    texts["system/blockMeshDict"] = cylinder_mesh(geometry, target_cells)
+    radial_grading = task.get("mesh", {}).get("radial_grading", 10)
+    mesh_options = task.get("mesh", {})
+    texts["system/blockMeshDict"] = cylinder_mesh(
+        geometry, target_cells, radial_grading, mesh_options)
     texts["constant/physicalProperties"] = _entry(
         texts["constant/physicalProperties"], "nu", f"[0 2 -1 0 0 0 0] {viscosity}"
     )
@@ -116,17 +123,37 @@ def generate_case(
     )
     for key, value in controls.items():
         texts["system/controlDict"] = _entry(texts["system/controlDict"], key, value)
+    force_controls = {
+        "magUInf": velocity,
+        "lRef": _number(geometry["cylinder_diameter"], "cylinder_diameter"),
+        "Aref": _number(geometry["cylinder_diameter"] * SPAN, "force_reference_area"),
+    }
+    for key, value in force_controls.items():
+        texts["system/controlDict"] = _replace_once(
+            texts["system/controlDict"], rf"^        {key}\s+[^;\n]+;",
+            f"        {key}            {value};", f"forceCoeffs {key}",
+        )
 
     geometry_record = {
         "dimension": "2D",
         "cylinder_diameter": geometry["cylinder_diameter"],
         "domain_length": geometry["domain_length"],
         "domain_height": geometry["domain_height"],
+        "upstream_length": geometry.get("upstream_length", geometry["domain_length"] / 2),
+        "downstream_length": geometry.get("downstream_length", geometry["domain_length"] / 2),
         "units": "m",
+        "span": SPAN,
         "mesh_verified": False,
         "warning": MESH_WARNING,
-        "mesh_source": "CFD-Memo eight-sector O-grid v1",
-        "planned_cells": mesh_resolution(target_cells)[2],
+        "mesh_source": ("CFD-Memo two-ring wake-focused O-grid v2"
+                        if "near_field_radius" in mesh_options
+                        else "CFD-Memo eight-sector O-grid v1"),
+        "planned_cells": planned_cells(target_cells, mesh_options),
+        "radial_grading": radial_grading,
+        "local_refinement": {key: mesh_options[key] for key in (
+            "near_field_radius", "angular_cells", "wake_angular_cells",
+            "near_radial_cells", "far_radial_cells", "near_radial_grading",
+            "far_radial_grading") if key in mesh_options},
         "actual_cells": None,
     }
     # Serialize before allocating the run so invalid input leaves no partial directory.
@@ -151,6 +178,7 @@ def generate_case(
         "task_path": str(run_dir / "task.json"),
         "generated_files": [*REQUIRED_FILES, "constant/geometry.json"],
         "mesh_verified": False,
+        "intent_fingerprint": intent["task_fingerprint"] if intent is not None else None,
         "warnings": [MESH_WARNING],
     }
     (run_dir / "generation.json").write_text(

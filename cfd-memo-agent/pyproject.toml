@@ -5,9 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "cfd-memo-agent"
 version = "0.1.0"
-description = "Stage B scaffold for a memory-enhanced CFD agent."
+description = "Memory-enhanced CFD agent prototype with an OpenFOAM execution backend."
 requires-python = ">=3.12"
-dependencies = ["jsonschema>=4.18,<5"]
+dependencies = ["jsonschema>=4.18,<5", "python-dotenv>=1.0,<2"]
 
 [project.scripts]
 cfd-memo-agent = "cfd_memo_agent.cli:main"

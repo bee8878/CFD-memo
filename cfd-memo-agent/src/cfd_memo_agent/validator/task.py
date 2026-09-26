@@ -90,6 +90,19 @@ def validate_task(task) -> dict:
     diameter = geometry["cylinder_diameter"]
     if diameter >= min(geometry["domain_length"], geometry["domain_height"]):
         errors.append(issue("GEOMETRY_RANGE", "圆柱直径必须小于计算域长和高", "task.geometry"))
+    upstream = geometry.get("upstream_length")
+    downstream = geometry.get("downstream_length")
+    if (upstream is None) != (downstream is None):
+        errors.append(issue("GEOMETRY_RANGE", "上游和下游长度必须同时提供", "task.geometry"))
+    elif upstream is not None and not close(upstream + downstream, geometry["domain_length"]):
+        errors.append(issue("GEOMETRY_RANGE", "上游与下游长度之和必须等于计算域长度", "task.geometry"))
+    if "near_field_radius" in mesh:
+        outer_limit = min(upstream or geometry["domain_length"] / 2,
+                          downstream or geometry["domain_length"] / 2,
+                          geometry["domain_height"] / 2)
+        if not diameter / 2 < mesh["near_field_radius"] < outer_limit:
+            errors.append(issue("MESH_RANGE", "近场半径必须位于圆柱和外边界之间",
+                                "task.mesh.near_field_radius"))
     if time["end_time"] <= time["start_time"]:
         errors.append(issue("TIME_RANGE", "结束时间必须大于起始时间", "task.time_control"))
     expected_nu = physics["inlet_velocity"] * diameter / physics["reynolds_number"]
@@ -97,7 +110,8 @@ def validate_task(task) -> dict:
         errors.append(issue("REYNOLDS_MISMATCH", "黏度不满足 nu=U*D/Re", "task.physics"))
     if "target_cells" in mesh:
         report["warnings"].append(issue(
-            "MESH_TARGET_ROUNDED", "目标单元数用于八块网格的整数划分；实际数量以生成网格为准", "task.mesh.target_cells"))
+            "MESH_TARGET_ROUNDED", "目标单元数是规划值；实际数量以生成网格为准",
+            "task.mesh.target_cells"))
     if task.get("convergence"):
         report["warnings"].append(issue(
             "CONVERGENCE_NOT_VERIFIED", "收敛目标仅记录，尚未验证求解效果", "task.convergence"))

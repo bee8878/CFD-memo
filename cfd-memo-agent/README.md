@@ -3,9 +3,9 @@
 CFD-Memo 已实现 C1–C5，并完成 C6 的真实工程执行闭环：规则规划、配置生成、
 验证、运行、有限修正、记录，以及通过 WSL 调用 Foundation OpenFOAM 10。
 
-This project currently defines the local engineering skeleton for a memory-enhanced CFD agent. It does not copy or depend on sensitive research application files under `../科研立项/`.
+This project is a local engineering prototype for a memory-enhanced CFD agent. It does not copy or depend on sensitive research application files under `../科研立项/`.
 
-## Stage B Scope
+## Project Structure
 
 - Python package structure under `src/cfd_memo_agent/`
 - CFD task and episode memory JSON schemas under `schemas/`
@@ -13,8 +13,62 @@ This project currently defines the local engineering skeleton for a memory-enhan
 - Simulated runner logs under `cases/runs/sample-logs/`
 - Experiment and schema notes under `docs/`
 
-Stage B did not require OpenFOAM. The current machine now has the fixed C6 backend;
-sample logs remain available only for explicit simulated tests.
+The current machine has the fixed C6 OpenFOAM backend. Sample logs remain
+available only for explicit simulated tests.
+
+## D1：统一模型接口
+
+D1 已建立统一的结构化模型调用接口，默认仍使用现有规则 planner，不会自动发起
+网络请求。查看当前脱敏配置：
+
+```powershell
+.\.venv\Scripts\python.exe -m cfd_memo_agent.cli model-info
+```
+
+OpenAI 模式使用 Responses API 与 Structured Outputs。配置只从环境变量读取；
+`OPENAI_API_KEY` 的值不会写入 task、episode、报告或日志。D1 提供接口、
+错误处理、调用元数据和假模型测试；D2 已让 Planner Agent 实际使用该接口，D3 已接入
+Case Writer Agent。详细说明见
+[D1 模型接口](docs/model-interface.md)。
+
+## D2：Planner Agent 与共享状态
+
+默认仍为离线规则模式，原命令和输出保持兼容。使用 `--details` 可查看请求 provider、
+实际规划模式、提示词版本、假设、待确认问题和脱敏 trace：
+
+~~~powershell
+.\.venv\Scripts\python.exe -m cfd_memo_agent.cli plan "做 Re=100 的二维圆柱绕流" --details
+~~~
+
+使用 DeepSeek 时，只在当前 PowerShell 会话设置真实密钥，不要写入代码或提交到 Git：
+
+~~~powershell
+$env:CFD_MEMO_MODEL_PROVIDER="deepseek"
+$env:CFD_MEMO_MODEL="deepseek-flash"
+$env:DEEPSEEK_API_KEY="<仅保存在本机的API密钥>"
+.\.venv\Scripts\python.exe -m cfd_memo_agent.cli model-info
+.\.venv\Scripts\python.exe -m cfd_memo_agent.cli plan "做 Re=100 的二维圆柱绕流" --details
+~~~
+
+OpenAI 仍受支持，对应 provider、模型和密钥变量分别为 `openai`、
+`CFD_MEMO_MODEL` 和 `OPENAI_API_KEY`。两种 provider 都只允许各自官方
+Responses API 地址。
+
+项目启动时会固定读取本目录的 `.env`，与启动命令所在目录无关。首次配置可以执行：
+
+~~~powershell
+Copy-Item .env.example .env
+notepad .env
+~~~
+
+将 `.env` 中的 provider、模型和本机密钥改为实际值。`.env` 已被 Git 忽略；
+`.env.example` 只能保留空密钥。若系统环境变量与 `.env` 同名，系统环境变量优先，
+防止本地文件覆盖临时或部署环境配置。
+
+模型只产生候选任务。候选必须再次通过 JSON Schema 和 `validate_task` 的 CFD 规则，
+才能进入 Generator。接口失败默认停止；只有显式添加 `--fallback rules`（`plan`）
+或 `--planner-fallback rules`（`generate`/`run`）才使用规则 Planner，并在记录中注明。
+完整工作流另存 `planning.json`，同时把摘要写入 `episode.json` 和中文报告。
 
 ## Python Development Environment
 
@@ -31,6 +85,11 @@ py -3.13 -m venv .venv
 The environment uses Python 3.13, which satisfies the project's Python >=3.12
 requirement. The editable install makes source changes available immediately.
 The `.venv/` directory is local and must not be committed.
+
+If the repository is moved or renamed, rerun `python -m pip install -e ".[dev]"`
+with this virtual environment. Editable-install metadata contains the source path;
+without reinstalling, commands started outside the project directory may import
+the old location and fail.
 
 In VS Code, select `.venv/Scripts/python.exe` using **Python: Select Interpreter**.
 Open this directory as the workspace, or use the repository workspace file
@@ -65,8 +124,22 @@ then use `python -m pytest`; run `deactivate` before changing projects.
 `target_cells` 决定整数划分，默认目标 10000 对应计划 10368 个单元；
 实际数量由运行后读取网格确定。`mesh_verified=false` 保留到真实检查通过。
 本机已在 OpenFOAM 10 中完成网格和求解工程验收；默认网格为 10368 个单元，
-圆柱边界为 288 个面。阻力、升力、涡脱落频率及网格/时间步独立性尚未验证，
-因此 `physical_validated=false`，不能宣称物理准确性已经成立。
+圆柱工程 baseline 已完成真实网格、求解和场文件检查；物理验收另由固定研究矩阵汇总，
+不能用单次 `completed` 代替物理准确性结论。
+
+C6 已接入圆柱 `forceCoeffs`，并完成八组 `Re=100` 真实研究。原单环全局加密序列暴露出
+升力不收敛后，网格改为双环局部加密：圆柱到 `10D` 的近场、尾迹扇区和远场分别控制。
+`29440 → 47200` 单元时，`Cd/Cl/St` 的变化分别为 `0.088%/1.83%/0.727%`，
+全部通过门槛；最终 `Cd=1.32566`、`Cl` 振幅 `0.33536`、`St=0.16309` 也进入
+预设参考区间。研究汇总现为 `physical_validated=true`。协议与命令见
+[C6 物理验收协议](docs/physical-validation.md)。
+
+```powershell
+.\.venv\Scripts\python.exe -m cfd_memo_agent.cli physics-study `
+  --task examples\task.cylinder-2d-physical.json `
+  --baseline-episode "cases\runs\某次真实基线\episode.json" `
+  --timeout 1800
+```
 
 ## C3：检查任务与配置
 
@@ -226,8 +299,35 @@ completed 也不代表物理验证成功。模拟完成状态为 simulated_succe
 
 需求、--task、--run 三种输入互斥。原 C4 的 run --run <目录> 仍是单次执行；
 --scenario 仅用于 C4。--fault、--max-corrections、--runs-dir 仅用于 C5。
-当前使用规则 planner，保持其有限输入能力；未接入 LLM。
+默认使用规则 planner；设置 OpenAI 或 DeepSeek provider 后使用 D2 Planner Agent。模型故障不会
+静默回退，只有 `--planner-fallback rules` 才允许并记录回退。
 episode 标记 no_memory、experience_reused=false，候选经验未进入跨任务经验库。
+
+## D3：Case Writer Agent
+
+完整 `run` 工作流在 Planner 和 Generator 之间增加了 Case Writer。它不会直接写文件，
+而是输出结构化 intent，明确固定模板、求解器以及 task 字段应映射到的 OpenFOAM 文件。
+intent 包含 task 指纹；task 在规划后若被修改，旧 intent 会被拒绝。
+
+生成器只允许 `0/U`、`0/p`、`constant/physicalProperties`、`system/controlDict`、
+`system/blockMeshDict` 和 `constant/geometry.json` 的固定映射。通过后仍由原生成器写文件，
+并继续经过 validator 和 runner，模型不能输出任意路径、命令或自行宣告运行成功。
+每次工作流把完整决策保存为 `case-writing.json`，摘要和脱敏 trace 同时进入
+`episode.json` 与中文报告。规则模式使用同一 intent 接口但不联网。
+
+## D4：Reviewer Agent
+
+每轮 validator/runner 完成后，Reviewer 只读取 task 摘要、执行状态、findings 和
+runtime blockers，不直接读取密钥或修改 case。它输出 `accept`、`repair` 或 `stop`，
+并记录错误 code、修正范围、原因、建议、适用条件和限制。
+
+可执行决策由确定性证据锁定：无错误且本轮完成才能接受；所有错误都是
+`rule_candidate` 才能建议修正；未知错误、超时和人工处理项必须停止。模型只能解释，
+不能把失败说成成功。即使 Reviewer 建议修正，也必须由 `propose_repairs()` 再次核对，
+仅恢复允许的边界或黏度文件，并在新一轮重新验证。
+
+每轮保存 `rounds/round-<编号>/review.json`，episode 和报告汇总完整审查轨迹。
+受控边界故障已真实通过 DeepSeek 验收：`repair -> 重新验证 -> accept`。
 
 Python 接口与测试：
 

@@ -1,0 +1,40 @@
+{
+  "task_id": "task-cylinder-2d-re100-physical-baseline",
+  "case_type": "cylinder-2d",
+  "solver": "icoFoam",
+  "geometry": {
+    "dimension": "2D",
+    "cylinder_diameter": 1.0,
+    "domain_length": 60.0,
+    "domain_height": 60.0
+  },
+  "physics": {
+    "flow_model": "incompressible_laminar",
+    "reynolds_number": 100,
+    "inlet_velocity": 1.0,
+    "kinematic_viscosity": 0.01
+  },
+  "boundary_conditions": {
+    "inlet": { "U": "fixedValue", "p": "zeroGradient" },
+    "outlet": { "U": "zeroGradient", "p": "fixedValue" },
+    "cylinder": { "U": "noSlip", "p": "zeroGradient" },
+    "top": { "U": "slip", "p": "zeroGradient" },
+    "bottom": { "U": "slip", "p": "zeroGradient" },
+    "frontAndBack": { "U": "empty", "p": "empty" }
+  },
+  "mesh": {
+    "generator": "manual-template",
+    "target_cells": 10000,
+    "radial_grading": 100
+  },
+  "time_control": {
+    "start_time": 0,
+    "end_time": 100,
+    "delta_t": 0.005,
+    "write_interval": 5
+  },
+  "convergence": {
+    "residual_target": 0.000001,
+    "max_corrections": 0
+  }
+}

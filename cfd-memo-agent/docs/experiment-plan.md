@@ -1,4 +1,4 @@
-# Stage B Experiment Plan
+# Experiment Plan (Draft)
 
 ## MVP
 
@@ -25,7 +25,7 @@ The first CFD-Memo prototype supports one CFD case, one solver, and one complete
 
 ## Baseline
 
-Use `cases/templates/cylinder-2d/` as the readable baseline case. If OpenFOAM is unavailable, use sample logs under `cases/runs/sample-logs/` to develop the runner, diagnoser, and memory-writing workflow.
+Use `cases/templates/cylinder-2d/` as the engineering baseline. The default case has completed `blockMesh`, `checkMesh`, and `icoFoam` with Foundation OpenFOAM 10. Sample logs under `cases/runs/sample-logs/` are only for deterministic software tests and do not count as CFD results.
 
 ## Comparison Groups
 
@@ -33,3 +33,6 @@ Use `cases/templates/cylinder-2d/` as the readable baseline case. If OpenFOAM is
 - Simple-cache agent: reuses only a complete prior case or fixed template.
 - CFD-Memo agent: reuses structured experience, failure cases, and correction strategies, then writes a new episode after each task.
 
+## Remaining Protocol Decisions
+
+Before the formal comparison, freeze the task list, sample size, repeat count, model and prompt version, correction budget, memory snapshot, and success thresholds. Separate experience-building tasks from evaluation tasks. Physical acceptance must include field validity and reference quantities, followed by mesh and time-step independence checks.
