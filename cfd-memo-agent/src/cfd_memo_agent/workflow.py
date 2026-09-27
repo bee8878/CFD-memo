@@ -11,7 +11,7 @@ from uuid import uuid4
 from cfd_memo_agent.correction import FAULTS, apply_repairs, inject_fault, propose_repairs
 from cfd_memo_agent.diagnoser import diagnose_validation
 from cfd_memo_agent.generator import generate_case
-from cfd_memo_agent.memory import save_episode
+from cfd_memo_agent.memory import CaseCache, MemoryManager, save_episode
 from cfd_memo_agent.memory.episodes import write_record
 from cfd_memo_agent.models import ModelClient, ModelError, ModelSettings
 from cfd_memo_agent.orchestrator import (
@@ -27,7 +27,8 @@ from cfd_memo_agent.validator.task import finite, issue, new_report
 PROJECT = Path(__file__).resolve().parents[2]
 
 
-def _options(description, task_path, mode, max_corrections, timeout, fault, planner_fallback):
+def _options(description, task_path, mode, max_corrections, timeout, fault, planner_fallback,
+             memory_mode, memory_dir, memory_learning):
     if (description is None) == (task_path is None):
         raise ValueError("需求与 task_path 必须二选一")
     if description is not None and not isinstance(description, str):
@@ -44,44 +45,62 @@ def _options(description, task_path, mode, max_corrections, timeout, fault, plan
         raise ValueError("受控故障仅支持模拟模式下的 missing-boundary 或 bad-transport")
     if planner_fallback not in {"stop", "rules"}:
         raise ValueError("planner_fallback 必须为 stop 或 rules")
+    if memory_mode not in {"no_memory", "simple_cache", "retrieval_only", "cfd_memo"}:
+        raise ValueError("memory_mode 必须为 no_memory、simple_cache、retrieval_only 或 cfd_memo")
+    if memory_mode == "no_memory" and memory_dir is not None:
+        raise ValueError("memory_dir 仅用于启用历史信息的模式")
+    if not isinstance(memory_learning, bool):
+        raise ValueError("memory_learning 必须为布尔值")
 
 
 def run_workflow(description=None, *, task_path=None, mode, runs_dir=None,
                  max_corrections=None, timeout=300, fault=None,
                  planner_fallback="stop", model_settings: ModelSettings | None = None,
-                 model_client: ModelClient | None = None) -> dict:
+                 model_client: ModelClient | None = None, memory_mode="no_memory",
+                 memory_dir=None, memory_learning=True) -> dict:
     """Run C1-C4, optionally repair supported fields, and persist an episode."""
-    _options(description, task_path, mode, max_corrections, timeout, fault, planner_fallback)
+    _options(description, task_path, mode, max_corrections, timeout, fault,
+             planner_fallback, memory_mode, memory_dir, memory_learning)
     parent = Path(runs_dir).resolve() if runs_dir is not None else PROJECT / "cases/runs"
     template = (PROJECT / "cases/templates").resolve()
     if parent == template or template in parent.parents:
         raise ValueError("工作流输出不能位于模板目录内")
     root = parent / ("workflow-" + uuid4().hex)
     root.mkdir(parents=True)
+    manager = None
+    cache = None
+    memory_root = Path(memory_dir).resolve() if memory_dir is not None else PROJECT / "cases/memory"
+    if memory_mode in {"retrieval_only", "cfd_memo"}:
+        manager = MemoryManager(memory_root)
+    elif memory_mode == "simple_cache":
+        cache = CaseCache(memory_root)
     start = time.monotonic()
     source = {"kind": "description" if task_path is None else "task_file",
               "description": description, "task_path": str(Path(task_path).resolve()) if task_path is not None else None,
               "raw_text": None}
     episode = {
-        "schema_version": 2, "episode_id": root.name, "task_id": None, "task": None,
-        "input": source, "mode": "no_memory", "runner_mode": mode,
+        "schema_version": 3 if memory_mode != "no_memory" else 2,
+        "episode_id": root.name, "task_id": None, "task": None,
+        "input": source, "mode": memory_mode, "runner_mode": mode,
         "planning": task_file_planning_state() if task_path is not None else {
             "status": "pending", "requested_provider": None, "actual_mode": None,
             "fallback_used": False, "fallback_reason": None, "model": None,
             "prompt_version": None, "trace": None, "assumptions": [],
-            "questions": [], "error": None,
+            "questions": [], "experience_ids": [], "error": None,
         },
         "case_writing": {
             "status": "pending", "requested_provider": None, "actual_mode": None,
             "fallback_used": False, "fallback_reason": None, "model": None,
             "prompt_version": None, "trace": None, "intent": None,
             "rationale": [], "warnings": [], "blockers": [], "error": None,
+            "experience_ids": [], "preventive_files": [],
         },
         "status": "failed", "physical_validated": False,
         "started_at": datetime.now(timezone.utc).isoformat(), "workflow_path": str(root),
         "episode_path": str(root / "episode.json"), "report_path": str(root / "report.md"),
         "max_corrections": max_corrections if max_corrections is not None else 2,
-        "rounds": [], "reviews": [], "corrections": [], "injected_fault": None,
+        "rounds": [], "reviews": [], "corrections": [], "preventions": [],
+        "injected_fault": None,
         "findings": [],
         "stop_reason": {"code": "NOT_STARTED", "message": "任务尚未完成"},
         "case_summary": None, "log_summary": None,
@@ -89,6 +108,14 @@ def run_workflow(description=None, *, task_path=None, mode, runs_dir=None,
         "reflection": {"success_factors": [], "failure_causes": [], "reusable_rules": []},
         "reuse_tags": [], "metrics": {"elapsed_seconds": 0, "config_valid": False, "experience_reused": False},
     }
+    if memory_mode != "no_memory":
+        episode["memory"] = {
+            "store_path": str(memory_root), "retrieved_experience_ids": [],
+            "retrievals": [], "uses": [], "learned_experience_ids": [],
+            "learned_procedure_ids": [],
+            "archived_episode_path": None, "learning_enabled": memory_learning,
+            "cache_key": None, "cache_hit": False, "cached_case_path": None,
+        }
 
     def finish(status, code, message):
         episode["status"] = status
@@ -120,16 +147,51 @@ def run_workflow(description=None, *, task_path=None, mode, runs_dir=None,
             if episode["corrections"]:
                 episode["reflection"]["reusable_rules"] = [
                     "候选：有效任务支持的边界或黏度字段，可从可信配置恢复并重新验证。"]
+        if manager is not None:
+            if memory_learning and memory_mode == "cfd_memo":
+                manager.record_use_outcomes(episode)
+                learned = manager.learn_from_episode(episode)
+            else:
+                learned = {"experience_ids": [], "procedure_ids": []}
+            episode["memory"].update({
+                "retrieved_experience_ids": list(manager.working["retrieved_experience_ids"]),
+                "retrievals": deepcopy(manager.working["retrievals"]),
+                "uses": deepcopy(manager.working["uses"]),
+                "learned_experience_ids": learned["experience_ids"],
+                "learned_procedure_ids": learned["procedure_ids"],
+                "archived_episode_path": (
+                    str(manager.episodes_dir / f"{episode['episode_id']}.json")
+                    if memory_learning else None
+                ),
+            })
+            episode["metrics"]["experience_reused"] = bool(manager.working["uses"])
+        elif cache is not None:
+            if (memory_learning and episode["task"] is not None and episode["rounds"]
+                    and episode["metrics"]["config_valid"]):
+                key, cached_path = cache.store(
+                    episode["task"], Path(episode["rounds"][-1]["case_path"]),
+                )
+                episode["memory"].update({
+                    "cache_key": key, "cached_case_path": str(cached_path),
+                })
+            episode["metrics"]["experience_reused"] = episode["memory"]["cache_hit"]
         save_episode(root / "episode.json", episode)
         write_report(root / "report.md", episode)
+        if manager is not None and memory_learning:
+            manager.archive_episode(episode)
         return episode
 
     try:
         selected_settings = model_settings or ModelSettings.from_env()
         if task_path is None:
+            planning_memories = (
+                manager.retrieve_for_planning(description)
+                if manager is not None and memory_mode == "cfd_memo" else []
+            )
             state = plan_description(
                 description, settings=selected_settings, client=model_client,
                 fallback=planner_fallback,
+                memory_context=(manager.context(planning_memories) if manager is not None else []),
             )
             episode["planning"] = planning_record(state)
             write_record(root / "planning.json", state)
@@ -178,11 +240,39 @@ def run_workflow(description=None, *, task_path=None, mode, runs_dir=None,
     if max_corrections is None:
         episode["max_corrections"] = int(task.get("convergence", {}).get("max_corrections", 2))
     write_record(root / "task.json", task)
+    if manager is not None:
+        manager.start_task(task)
+        if memory_mode == "cfd_memo" and episode["planning"]["experience_ids"]:
+            manager.note_use(
+                episode["planning"]["experience_ids"], agent="planner", round_index=0,
+                decision="plan_with_memory", effect="added_planning_guardrails",
+            )
+        case_memories = (
+            manager.retrieve(
+                task, query_text=(description or "二维圆柱 OpenFOAM case 配置生成"),
+                stage="case_writer",
+            ) if memory_mode == "cfd_memo" else []
+        )
+    else:
+        case_memories = []
+    cached_case = None
+    if cache is not None:
+        cache_key, cached_case = cache.lookup(task)
+        episode["memory"]["cache_key"] = cache_key
+        episode["memory"]["cached_case_path"] = (
+            str(cached_case) if cached_case is not None else None
+        )
     case_writing = prepare_case_writing(
         task, settings=selected_settings, client=model_client, fallback=planner_fallback,
+        memory_context=(manager.context(case_memories) if manager is not None else []),
     )
     episode["case_writing"] = case_writing
     write_record(root / "case-writing.json", case_writing)
+    if manager is not None and case_writing["experience_ids"]:
+        manager.note_use(
+            case_writing["experience_ids"], agent="case_writer", round_index=0,
+            decision="prepare_with_memory", effect="added_preventive_file_checks",
+        )
     if case_writing["status"] != "ready":
         detail = "；".join(case_writing["blockers"])
         if not detail and case_writing["error"]:
@@ -229,6 +319,36 @@ def run_workflow(description=None, *, task_path=None, mode, runs_dir=None,
             if index == 0 and fault is not None:
                 episode["injected_fault"] = inject_fault(round_dir / "case", fault)
                 write_record(round_dir / "injected-fault.json", episode["injected_fault"])
+            if index == 0 and cached_case is not None:
+                shutil.copytree(cached_case, round_dir / "case", dirs_exist_ok=True)
+                episode["memory"]["cache_hit"] = True
+                write_record(round_dir / "cache-reuse.json", {
+                    "cache_key": episode["memory"]["cache_key"],
+                    "cached_case_path": str(cached_case),
+                    "scope": "complete_case_exact_task",
+                })
+            if index == 0 and case_writing["preventive_files"]:
+                prevented_files = []
+                for relative in case_writing["preventive_files"]:
+                    current = round_dir / "case" / relative
+                    trusted = reference / "case" / relative
+                    if current.read_bytes() != trusted.read_bytes():
+                        shutil.copyfile(trusted, current)
+                        prevented_files.append(relative)
+                if prevented_files:
+                    prevention = {
+                        "round_index": index,
+                        "experience_ids": case_writing["experience_ids"],
+                        "files": prevented_files,
+                        "action": "restore_from_trusted_reference",
+                    }
+                    episode["preventions"].append(prevention)
+                    write_record(round_dir / "memory-prevention.json", prevention)
+                    manager.note_use(
+                        case_writing["experience_ids"], agent="case_writer", round_index=index,
+                        decision="prevent_configuration_drift",
+                        effect="prevented_known_configuration_drift",
+                    )
         except (OSError, ValueError) as exc:
             record["status"] = "execution_error"
             record["findings"] = [issue("ROUND_PREPARATION_FAILED", str(exc), str(round_dir))]
@@ -272,6 +392,16 @@ def run_workflow(description=None, *, task_path=None, mode, runs_dir=None,
             "runtime_blockers": record["runtime_blockers"],
             "physical_validated": False,
         }
+        memories = (
+            manager.retrieve(
+                task, problem_codes=[item["code"] for item in record["findings"]],
+                query_text=" ".join(item["message"] for item in record["findings"]),
+                stage="reviewer",
+            ) if manager is not None and record["findings"] else []
+        )
+        review_input["memory_context"] = (
+            manager.context(memories) if manager is not None else []
+        )
         review = review_evidence(
             review_input, settings=selected_settings, client=model_client,
             fallback=planner_fallback,
@@ -280,6 +410,11 @@ def run_workflow(description=None, *, task_path=None, mode, runs_dir=None,
         review.update({"round_index": index, "review_path": str(review_path)})
         episode["reviews"].append(review)
         write_record(review_path, review)
+        if manager is not None and review["experience_ids"]:
+            manager.note_use(
+                review["experience_ids"], agent="reviewer", round_index=index,
+                decision=review["decision"],
+            )
         if review["status"] != "reviewed":
             return finish(
                 "failed", "REVIEW_FAILED",

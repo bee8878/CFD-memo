@@ -24,6 +24,8 @@ def output(task=None, **overrides):
         "rationale": ["将 task 参数映射到固定 OpenFOAM 模板。"],
         "warnings": ["仍需执行确定性验证。"],
         "blockers": [],
+        "experience_ids": [],
+        "preventive_files": [],
     }
     value.update(overrides)
     return value

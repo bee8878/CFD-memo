@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/cfd-memo-agent/experience.schema.json",
+  "title": "CFD-Memo Structured Experience",
+  "type": "object",
+  "required": ["schema_version", "experience_id", "record_type", "status",
+               "problem_codes", "applicability", "action", "evidence",
+               "verification_scope", "created_at", "updated_at"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "experience_id": { "type": "string", "pattern": "^exp-[a-f0-9]{16}$" },
+    "record_type": { "const": "repair_knowledge" },
+    "status": { "enum": ["candidate", "verified"] },
+    "problem_codes": { "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": { "type": "string" } },
+    "applicability": {
+      "type": "object",
+      "required": ["case_type", "solver", "flow_model", "dimension"],
+      "properties": {
+        "case_type": { "type": "string" }, "solver": { "type": "string" },
+        "flow_model": { "type": "string" }, "dimension": { "type": "string" },
+        "source_reynolds_number": { "type": "number" }
+      },
+      "additionalProperties": false
+    },
+    "action": {
+      "type": "object", "required": ["type", "files"],
+      "properties": {
+        "type": { "const": "restore_from_trusted_reference" },
+        "files": { "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": { "enum": ["0/U", "0/p", "constant/physicalProperties"] } }
+      },
+      "additionalProperties": false
+    },
+    "evidence": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["episode_id", "from_round", "to_round", "outcome_status"],
+        "properties": {
+          "episode_id": { "type": "string" },
+          "from_round": { "type": "integer", "minimum": 0 },
+          "to_round": { "type": "integer", "minimum": 1 },
+          "outcome_status": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "verification_scope": { "const": "configuration" },
+    "trust": {
+      "type": "object",
+      "required": ["positive_outcomes", "negative_outcomes", "confidence", "evaluated_episode_ids"],
+      "properties": {
+        "positive_outcomes": { "type": "integer", "minimum": 0 },
+        "negative_outcomes": { "type": "integer", "minimum": 0 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "evaluated_episode_ids": {
+          "type": "array", "uniqueItems": true, "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "created_at": { "type": "string" }, "updated_at": { "type": "string" }
+  },
+  "additionalProperties": false
+}

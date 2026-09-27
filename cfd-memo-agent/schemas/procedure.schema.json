@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/cfd-memo-agent/procedure.schema.json",
+  "title": "CFD-Memo Verified Procedure",
+  "type": "object",
+  "required": ["schema_version", "procedure_id", "record_type", "status",
+               "action_type", "files", "steps", "experience_ids", "updated_at"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "procedure_id": { "type": "string", "pattern": "^proc-[a-f0-9]{16}$" },
+    "record_type": { "const": "verified_procedure" },
+    "status": { "const": "verified" },
+    "action_type": { "const": "restore_from_trusted_reference" },
+    "files": { "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": { "enum": ["0/U", "0/p", "constant/physicalProperties"] } },
+    "steps": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+    "experience_ids": { "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": { "type": "string" } },
+    "updated_at": { "type": "string" }
+  },
+  "additionalProperties": false
+}

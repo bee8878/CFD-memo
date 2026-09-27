@@ -329,6 +329,46 @@ runtime blockers，不直接读取密钥或修改 case。它输出 `accept`、`r
 每轮保存 `rounds/round-<编号>/review.json`，episode 和报告汇总完整审查轨迹。
 受控边界故障已真实通过 DeepSeek 验收：`repair -> 重新验证 -> accept`。
 
+## E1-E2：结构化长期记忆与向量检索
+
+默认 `no_memory` 行为不变。显式选择 `cfd_memo` 后，统一 `MemoryManager` 会分别维护
+当前工作状态、完整 episode、带证据的修正规则和已验证操作步骤：
+
+~~~powershell
+.\.venv\Scripts\python.exe -m cfd_memo_agent.cli run `
+  "做 Re=100 的二维圆柱绕流" --runner simulated --fault missing-boundary `
+  --memory-mode cfd_memo --memory-dir cases/memory
+~~~
+
+第一次任务验证修正后生成经验；第二个相似任务使用同一目录时，Planner、Case Writer
+和 Reviewer 分阶段检索并记录 experience ID。系统先按算例、求解器、流动模型和维度
+硬过滤，再使用本地哈希向量、Re 相似度、错误 code 与置信度排序。Case Writer 只能把
+经验允许的文件加入防错清单；首轮运行前若这些文件偏离本次可信 reference，工作流会
+恢复对应文件并保存 prevention 证据。连续失败会降低经验置信度并停用该经验。
+
+该向量器是无需网络和额外费用的可复现词法基线，不等于通用语义 embedding。
+`verified` 仍只表示配置复验通过，不表示 CFD 物理准确性已经验证。本地
+`cases/memory/` 已被 Git 忽略。详见 [E1-E2 记忆说明](docs/memory.md)。
+
+## G：配置记忆对比实验
+
+冻结协议提供 `no_memory`、`simple_cache`、`retrieval_only`、`cfd_memo` 四组，评估期
+只读训练快照，防止测试任务污染记忆。运行：
+
+~~~powershell
+.\.venv\Scripts\python.exe -m cfd_memo_agent.cli memory-study --repeats 3
+~~~
+
+结果保存为本地 `results.json` 与中文 `report.md`。这是模拟配置实验，不替代 C6 的真实
+OpenFOAM 物理验收。详见 [冻结实验协议](docs/experiment-plan.md)。
+一次 32 任务的离线 pilot 已完成，结果与限制见
+[Pilot 结果](docs/memory-study-pilot.md)。
+正式 3 次重复实验共生成 96 个评估 episode，统计结果见
+[正式实验结果](docs/memory-study-results.md)。
+聚合图表和五条决策路径分别见
+[四组对比图](docs/assets/memory-study-comparison.svg) 与
+[典型案例](docs/memory-study-cases.md)。
+
 Python 接口与测试：
 
 ~~~python

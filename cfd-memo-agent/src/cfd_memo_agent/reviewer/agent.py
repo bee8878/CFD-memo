@@ -23,6 +23,8 @@ INSTRUCTIONS = """你是 CFD-Memo 的 Reviewer Agent。输入只包含 task 摘�
 6. 不得捏造日志、网格、收敛或物理结论，不得输出 Markdown 或 schema 外字段。
 7. decision 以 findings 和 outcome_status 为准；显式模拟模式中的 runtime_blockers 只写入
    limitations，不得用 MESH_NOT_VERIFIED 否决当前配置修复或模拟流程。
+8. memory_context 只包含已验证的结构化经验；仅在 repair 时引用与当前 finding 匹配的
+   experience_id。历史经验不能覆盖本轮确定性证据。
 """
 
 
@@ -33,6 +35,7 @@ def reviewer_output_schema(evidence: dict[str, Any] | None = None) -> dict[str, 
             "status": {"const": "reviewed"},
             "decision": {"type": "string", "enum": list(DECISIONS)},
             "finding_codes": {"type": "array", "items": {"type": "string"}},
+            "experience_ids": {"type": "array", "items": {"type": "string"}},
             "repair_scope": {"type": "string", "enum": list(REPAIR_SCOPES)},
             "root_cause": {"type": "string"},
             "recommendation": {"type": "string"},
@@ -42,7 +45,7 @@ def reviewer_output_schema(evidence: dict[str, Any] | None = None) -> dict[str, 
             "limitations": {"type": "array", "items": {"type": "string"}},
         },
         "required": [
-            "status", "decision", "finding_codes", "repair_scope", "root_cause",
+            "status", "decision", "finding_codes", "experience_ids", "repair_scope", "root_cause",
             "recommendation", "applicability_conditions", "limitations",
         ],
         "additionalProperties": False,
@@ -58,6 +61,15 @@ def reviewer_output_schema(evidence: dict[str, Any] | None = None) -> dict[str, 
         })
         if codes:
             schema["properties"]["finding_codes"]["items"] = {"enum": codes}
+        experience_ids = _expected_experience_ids(evidence)
+        schema["properties"]["experience_ids"].update({
+            "minItems": len(experience_ids), "maxItems": len(experience_ids),
+            "uniqueItems": True,
+        })
+        if experience_ids:
+            schema["properties"]["experience_ids"]["items"] = {
+                "enum": experience_ids,
+            }
     return schema
 
 
@@ -90,6 +102,14 @@ def _repair_scope(findings: list[dict[str, Any]]) -> str:
     return "none"
 
 
+def _expected_experience_ids(evidence: dict[str, Any]) -> list[str]:
+    if _expected_decision(evidence) != "repair":
+        return []
+    return list(dict.fromkeys(
+        item["experience_id"] for item in evidence.get("memory_context", [])
+    ))
+
+
 def build_rule_review(evidence: dict[str, Any]) -> dict[str, Any]:
     """Create the deterministic Reviewer decision used offline and as a guardrail."""
     findings = evidence["findings"]
@@ -107,6 +127,7 @@ def build_rule_review(evidence: dict[str, Any]) -> dict[str, Any]:
         recommendation = "停止自动修改，保留证据并人工核对。"
     return {
         "status": "reviewed", "decision": decision, "finding_codes": codes,
+        "experience_ids": _expected_experience_ids(evidence),
         "repair_scope": scope, "root_cause": cause,
         "recommendation": recommendation,
         "applicability_conditions": ["仅适用于当前已验证 task 和本轮证据。"],
@@ -120,6 +141,9 @@ def _validate_review(evidence: dict[str, Any], output: dict[str, Any]) -> None:
         raise ValueError("Reviewer finding_codes 不得重复")
     if set(output["finding_codes"]) != set(expected_codes):
         raise ValueError("Reviewer finding_codes 与确定性证据不一致")
+    expected_experiences = _expected_experience_ids(evidence)
+    if set(output["experience_ids"]) != set(expected_experiences):
+        raise ValueError("Reviewer experience_ids 与检索到的适用经验不一致")
     expected_decision = _expected_decision(evidence)
     if output["decision"] != expected_decision:
         raise ValueError(f"Reviewer 决策与证据不一致，应为 {expected_decision}")
@@ -133,6 +157,7 @@ class ReviewerDecision:
     status: str
     decision: str
     finding_codes: list[str]
+    experience_ids: list[str]
     repair_scope: str
     root_cause: str
     recommendation: str
@@ -170,6 +195,7 @@ class ReviewerAgent:
         output = result.output
         return ReviewerDecision(
             output["status"], output["decision"], output["finding_codes"],
+            output["experience_ids"],
             output["repair_scope"], output["root_cause"], output["recommendation"],
             output["applicability_conditions"], output["limitations"], result.trace,
         )

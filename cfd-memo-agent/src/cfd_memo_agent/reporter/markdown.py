@@ -17,7 +17,7 @@ def write_report(path: Path, episode: dict) -> None:
         "# CFD-Memo 任务报告", "",
         f"- 记录编号：{episode['episode_id']}",
         f"- 状态：{status_names.get(episode['status'], episode['status'])}",
-        f"- 执行模式：{episode['runner_mode']}；对比模式：no_memory",
+        f"- 执行模式：{episode['runner_mode']}；对比模式：{episode['mode']}",
         f"- 规划模式：{episode['planning']['actual_mode'] or '未完成'}"
         f"（请求 {episode['planning']['requested_provider'] or '未知'}）",
         f"- Case Writer：{episode.get('case_writing', {}).get('actual_mode') or '未完成'}"
@@ -47,6 +47,12 @@ def write_report(path: Path, episode: dict) -> None:
         lines.append("- Planner 错误：" + _text(planning["error"]["message"]))
     case_writing = episode.get("case_writing")
     if case_writing:
+        for experience_id in case_writing.get("experience_ids", []):
+            lines.append("- Case Writer 引用经验：" + _text(experience_id))
+        if case_writing.get("preventive_files"):
+            lines.append("- Case Writer 防错文件：" + "、".join(
+                _text(item) for item in case_writing["preventive_files"]
+            ))
         for reason in case_writing["rationale"]:
             lines.append("- Case Writer 决策：" + _text(reason))
         for warning in case_writing["warnings"]:
@@ -101,16 +107,38 @@ def write_report(path: Path, episode: dict) -> None:
             f"- Reviewer 第 {review['round_index']} 轮：{_text(review['decision'])}；"
             f"范围 {_text(review['repair_scope'])}；{_text(review['recommendation'])}"
         )
+        for experience_id in review.get("experience_ids", []):
+            lines.append(f"  - 引用经验：{_text(experience_id)}")
     for correction in episode["corrections"]:
         lines.append(f"- 第 {correction['from_round']} → {correction['to_round']} 轮："
                      + "、".join(change["file"] for change in correction["changes"]))
     if not episode["corrections"]:
         lines.append("本次没有实施自动修改。")
+    for prevention in episode.get("preventions", []):
+        lines.append(
+            f"- 记忆防错（第 {prevention['round_index']} 轮运行前）："
+            + "、".join(_text(item) for item in prevention["files"])
+        )
     for cause in episode["reflection"]["failure_causes"]:
         lines.append("- 已记录问题：" + _text(cause))
     for rule in episode["reflection"]["reusable_rules"]:
         lines.append("- 候选经验（未经过真实 CFD 验证）：" + _text(rule))
-    lines.extend(["", "完整变更前后内容见 episode.json 和各轮 correction.json。",
-                  "本次未检索历史经验；规则修正不等于大模型反思或长期记忆。", ""])
+    lines.extend(["", "完整变更前后内容见 episode.json 和各轮 correction.json。"])
+    if episode["mode"] == "no_memory":
+        lines.append("本次未检索历史经验；规则修正不等于大模型反思或长期记忆。")
+    elif episode["mode"] == "simple_cache":
+        memory = episode["memory"]
+        lines.append(
+            "简单缓存：" + ("命中完全相同 task 的完整 case。" if memory["cache_hit"]
+                         else "未命中完全相同 task；按普通工作流处理。")
+        )
+    else:
+        memory = episode["memory"]
+        lines.append(
+            f"{episode['mode']}：检索 {len(memory['retrieved_experience_ids'])} 条，"
+            f"实际引用 {len(memory['uses'])} 条，本轮学习 "
+            f"{len(memory['learned_experience_ids'])} 条。"
+        )
+    lines.append("")
     with path.open("x", encoding="utf-8") as handle:
         handle.write("\n".join(lines))

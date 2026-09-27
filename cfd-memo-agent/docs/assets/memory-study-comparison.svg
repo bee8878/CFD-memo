@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="560" viewBox="0 0 1200 560">
+<rect width="100%" height="100%" fill="#FFFFFF"/>
+<style>text{font-family:Arial,sans-serif;fill:#1E2933;letter-spacing:0}.title{font-size:22px;font-weight:700}.axis{font-size:13px}.value{font-size:14px;font-weight:700}</style>
+<text x="40" y="38" class="title">Configuration-memory comparison (n=24 per group)</text>
+<text x="215" y="72" text-anchor="middle" class="axis" font-weight="700">First-pass success</text>
+<line x1="35" y1="415" x2="395" y2="415" stroke="#AAB2BA"/>
+<line x1="35" y1="415.0" x2="395" y2="415.0" stroke="#E5E9ED"/>
+<text x="28" y="419.0" text-anchor="end" class="axis">0%</text>
+<line x1="35" y1="335.0" x2="395" y2="335.0" stroke="#E5E9ED"/>
+<text x="28" y="339.0" text-anchor="end" class="axis">25%</text>
+<line x1="35" y1="255.0" x2="395" y2="255.0" stroke="#E5E9ED"/>
+<text x="28" y="259.0" text-anchor="end" class="axis">50%</text>
+<line x1="35" y1="175.0" x2="395" y2="175.0" stroke="#E5E9ED"/>
+<text x="28" y="179.0" text-anchor="end" class="axis">75%</text>
+<line x1="35" y1="95.0" x2="395" y2="95.0" stroke="#E5E9ED"/>
+<text x="28" y="99.0" text-anchor="end" class="axis">100%</text>
+<rect x="57" y="415.0" width="58" height="0.0" fill="#59636E"/>
+<text x="86" y="407.0" text-anchor="middle" class="value">0%</text>
+<text x="86" y="439" text-anchor="middle" class="axis" transform="rotate(35 86 439)">No memory</text>
+<rect x="143" y="335.0" width="58" height="80.0" fill="#2A9D8F"/>
+<text x="172" y="327.0" text-anchor="middle" class="value">25%</text>
+<text x="172" y="439" text-anchor="middle" class="axis" transform="rotate(35 172 439)">Simple cache</text>
+<rect x="229" y="415.0" width="58" height="0.0" fill="#E9C46A"/>
+<text x="258" y="407.0" text-anchor="middle" class="value">0%</text>
+<text x="258" y="439" text-anchor="middle" class="axis" transform="rotate(35 258 439)">Retrieval only</text>
+<rect x="315" y="95.0" width="58" height="320.0" fill="#E76F51"/>
+<text x="344" y="109.0" text-anchor="middle" class="value">100%</text>
+<text x="344" y="439" text-anchor="middle" class="axis" transform="rotate(35 344 439)">CFD-Memo</text>
+<text x="605" y="72" text-anchor="middle" class="axis" font-weight="700">Failure avoidance</text>
+<line x1="425" y1="415" x2="785" y2="415" stroke="#AAB2BA"/>
+<line x1="425" y1="415.0" x2="785" y2="415.0" stroke="#E5E9ED"/>
+<text x="418" y="419.0" text-anchor="end" class="axis">0%</text>
+<line x1="425" y1="335.0" x2="785" y2="335.0" stroke="#E5E9ED"/>
+<text x="418" y="339.0" text-anchor="end" class="axis">25%</text>
+<line x1="425" y1="255.0" x2="785" y2="255.0" stroke="#E5E9ED"/>
+<text x="418" y="259.0" text-anchor="end" class="axis">50%</text>
+<line x1="425" y1="175.0" x2="785" y2="175.0" stroke="#E5E9ED"/>
+<text x="418" y="179.0" text-anchor="end" class="axis">75%</text>
+<line x1="425" y1="95.0" x2="785" y2="95.0" stroke="#E5E9ED"/>
+<text x="418" y="99.0" text-anchor="end" class="axis">100%</text>
+<rect x="447" y="415.0" width="58" height="0.0" fill="#59636E"/>
+<text x="476" y="407.0" text-anchor="middle" class="value">0%</text>
+<text x="476" y="439" text-anchor="middle" class="axis" transform="rotate(35 476 439)">No memory</text>
+<rect x="533" y="335.0" width="58" height="80.0" fill="#2A9D8F"/>
+<text x="562" y="327.0" text-anchor="middle" class="value">25%</text>
+<text x="562" y="439" text-anchor="middle" class="axis" transform="rotate(35 562 439)">Simple cache</text>
+<rect x="619" y="415.0" width="58" height="0.0" fill="#E9C46A"/>
+<text x="648" y="407.0" text-anchor="middle" class="value">0%</text>
+<text x="648" y="439" text-anchor="middle" class="axis" transform="rotate(35 648 439)">Retrieval only</text>
+<rect x="705" y="95.0" width="58" height="320.0" fill="#E76F51"/>
+<text x="734" y="109.0" text-anchor="middle" class="value">100%</text>
+<text x="734" y="439" text-anchor="middle" class="axis" transform="rotate(35 734 439)">CFD-Memo</text>
+<text x="995" y="72" text-anchor="middle" class="axis" font-weight="700">Mean corrections</text>
+<line x1="815" y1="415" x2="1175" y2="415" stroke="#AAB2BA"/>
+<line x1="815" y1="415.0" x2="1175" y2="415.0" stroke="#E5E9ED"/>
+<text x="808" y="419.0" text-anchor="end" class="axis">0</text>
+<line x1="815" y1="335.0" x2="1175" y2="335.0" stroke="#E5E9ED"/>
+<text x="808" y="339.0" text-anchor="end" class="axis">0.25</text>
+<line x1="815" y1="255.0" x2="1175" y2="255.0" stroke="#E5E9ED"/>
+<text x="808" y="259.0" text-anchor="end" class="axis">0.5</text>
+<line x1="815" y1="175.0" x2="1175" y2="175.0" stroke="#E5E9ED"/>
+<text x="808" y="179.0" text-anchor="end" class="axis">0.75</text>
+<line x1="815" y1="95.0" x2="1175" y2="95.0" stroke="#E5E9ED"/>
+<text x="808" y="99.0" text-anchor="end" class="axis">1</text>
+<rect x="837" y="95.0" width="58" height="320.0" fill="#59636E"/>
+<text x="866" y="109.0" text-anchor="middle" class="value">1.00</text>
+<text x="866" y="439" text-anchor="middle" class="axis" transform="rotate(35 866 439)">No memory</text>
+<rect x="923" y="175.0" width="58" height="240.0" fill="#2A9D8F"/>
+<text x="952" y="167.0" text-anchor="middle" class="value">0.75</text>
+<text x="952" y="439" text-anchor="middle" class="axis" transform="rotate(35 952 439)">Simple cache</text>
+<rect x="1009" y="95.0" width="58" height="320.0" fill="#E9C46A"/>
+<text x="1038" y="109.0" text-anchor="middle" class="value">1.00</text>
+<text x="1038" y="439" text-anchor="middle" class="axis" transform="rotate(35 1038 439)">Retrieval only</text>
+<rect x="1095" y="415.0" width="58" height="0.0" fill="#E76F51"/>
+<text x="1124" y="407.0" text-anchor="middle" class="value">0.00</text>
+<text x="1124" y="439" text-anchor="middle" class="axis" transform="rotate(35 1124 439)">CFD-Memo</text>
+<text x="40" y="535" class="axis">Rules provider, simulated backend, known controlled faults. Not a physical CFD validation.</text>
+</svg>

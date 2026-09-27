@@ -1,0 +1,30 @@
+{
+  "protocol_version": 1,
+  "study_name": "single-case-configuration-memory-comparison",
+  "execution_backend": "simulated",
+  "model_provider": "rules",
+  "correction_budget": 2,
+  "formal_repeats": 3,
+  "groups": ["no_memory", "simple_cache", "retrieval_only", "cfd_memo"],
+  "training": {
+    "simple_cache_task_id": "re100-u1-d1",
+    "knowledge_faults": ["missing-boundary", "bad-transport"]
+  },
+  "evaluation_tasks": [
+    {"id": "re100-u1-d1", "description": "做 Re=100 的二维圆柱绕流，入口速度=1，D=1"},
+    {"id": "re200-u2-d1", "description": "做 Re=200 的二维圆柱绕流，入口速度=2，D=1"},
+    {"id": "re150-u1p5-d1", "description": "做 Re=150 的二维圆柱绕流，入口速度=1.5，D=1"},
+    {"id": "re80-u0p8-d1", "description": "做 Re=80 的二维圆柱绕流，入口速度=0.8，D=1"}
+  ],
+  "faults": ["missing-boundary", "bad-transport"],
+  "success_definition": {
+    "first_pass": "round 0 passes deterministic configuration validation and simulated execution",
+    "final": "workflow reaches simulated_success within correction budget",
+    "failure_avoided": "known injected drift is restored before the first runner validation"
+  },
+  "limitations": [
+    "This study measures configuration-memory behavior, not CFD physical accuracy.",
+    "All tasks remain inside the 2D laminar cylinder-flow MVP.",
+    "The rules provider removes model sampling and API-cost variance from this pilot."
+  ]
+}

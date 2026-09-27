@@ -94,4 +94,8 @@ geometry.json 的 planned_cells 是整数划分的计划数量，actual_cells �
 
 `schemas/episode.schema.json` describes one completed or simulated CFD run. It records the task, comparison mode, result status, generated case files, log summary, diagnosis, reflection, reuse tags, and metrics.
 
-Episodes are the first version of CFD-Memo's memory. Later stages can store them under `memory/episodes/` and retrieve them by tags such as `cylinder-2d`, `re100`, `icoFoam`, and `laminar`.
+Episodes are archived under the local memory store in `episodes/`. E1-E2 also define
+`experience.schema.json` for compact repair knowledge and `procedure.schema.json` for verified
+steps. Episode v3 records Planner/Case Writer/Reviewer experience IDs, vector retrieval scores,
+confidence-backed uses, and run-before prevention evidence. `verified` means deterministic
+configuration validation passed; it does not mean the CFD physics was validated.

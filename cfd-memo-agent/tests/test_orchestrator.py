@@ -21,6 +21,7 @@ def output(*, task=None, status="ready", assumptions=None, questions=None):
         "task": deepcopy(DEFAULT_CYLINDER_TASK) if task is None and status == "ready" else task,
         "assumptions": assumptions or [],
         "questions": questions or [],
+        "experience_ids": [],
     }
 
 
@@ -30,12 +31,14 @@ def writer_output(task=None):
         "status": "ready", "intent": build_case_intent(task),
         "rationale": ["使用固定模板映射。"],
         "warnings": ["仍需验证和运行。"], "blockers": [],
+        "experience_ids": [], "preventive_files": [],
     }
 
 
-def reviewer_output(*, decision="accept", codes=None, scope="none"):
+def reviewer_output(*, decision="accept", codes=None, scope="none", experiences=None):
     return {
         "status": "reviewed", "decision": decision, "finding_codes": codes or [],
+        "experience_ids": experiences or [],
         "repair_scope": scope, "root_cause": "基于本轮结构化证据。",
         "recommendation": "仅由确定性工具修改并重新验证。",
         "applicability_conditions": ["仅适用于当前轮次。"],

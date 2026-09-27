@@ -7,7 +7,7 @@
   "properties": {
     "episode_id": { "type": "string" },
     "task_id": { "type": ["string", "null"] },
-    "mode": { "enum": ["no_memory", "simple_cache", "cfd_memo"] },
+    "mode": { "enum": ["no_memory", "simple_cache", "retrieval_only", "cfd_memo"] },
     "status": { "enum": ["success", "failed", "simulated_success", "simulated_failed", "completed", "blocked", "timeout", "execution_error", "interrupted"] },
     "case_summary": {
       "type": ["object", "null"],
@@ -50,7 +50,7 @@
       "additionalProperties": false
     },
     "reuse_tags": { "type": "array", "items": { "type": "string" } },
-    "schema_version": { "const": 2 },
+    "schema_version": { "enum": [2, 3] },
     "task": { "type": ["object", "null"] },
     "input": {
       "type": "object",
@@ -68,7 +68,7 @@
       "type": "object",
       "required": ["status", "requested_provider", "actual_mode", "fallback_used",
                    "fallback_reason", "model", "prompt_version", "trace",
-                   "assumptions", "questions", "error"],
+                   "assumptions", "questions", "experience_ids", "error"],
       "properties": {
         "status": { "enum": ["pending", "ready", "needs_clarification", "failed", "not_applicable"] },
         "requested_provider": { "type": ["string", "null"] },
@@ -80,6 +80,9 @@
         "trace": { "type": ["object", "null"] },
         "assumptions": { "type": "array", "items": { "type": "string" } },
         "questions": { "type": "array", "items": { "type": "string" } },
+        "experience_ids": {
+          "type": "array", "uniqueItems": true, "items": { "type": "string" }
+        },
         "error": {
           "type": ["object", "null"],
           "required": ["type", "message"],
@@ -96,7 +99,8 @@
       "type": "object",
       "required": ["status", "requested_provider", "actual_mode", "fallback_used",
                    "fallback_reason", "model", "prompt_version", "trace", "intent",
-                   "rationale", "warnings", "blockers", "error"],
+                   "rationale", "warnings", "blockers", "experience_ids",
+                   "preventive_files", "error"],
       "properties": {
         "status": { "enum": ["pending", "ready", "blocked", "failed"] },
         "requested_provider": { "type": ["string", "null"] },
@@ -110,6 +114,13 @@
         "rationale": { "type": "array", "items": { "type": "string" } },
         "warnings": { "type": "array", "items": { "type": "string" } },
         "blockers": { "type": "array", "items": { "type": "string" } },
+        "experience_ids": {
+          "type": "array", "uniqueItems": true, "items": { "type": "string" }
+        },
+        "preventive_files": {
+          "type": "array", "uniqueItems": true,
+          "items": { "enum": ["0/U", "0/p", "constant/physicalProperties"] }
+        },
         "error": {
           "type": ["object", "null"],
           "required": ["type", "message"],
@@ -158,13 +169,33 @@
         "additionalProperties": false
       }
     },
+    "preventions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["round_index", "experience_ids", "files", "action"],
+        "properties": {
+          "round_index": { "type": "integer", "minimum": 0 },
+          "experience_ids": {
+            "type": "array", "minItems": 1, "uniqueItems": true,
+            "items": { "type": "string" }
+          },
+          "files": {
+            "type": "array", "minItems": 1, "uniqueItems": true,
+            "items": { "enum": ["0/U", "0/p", "constant/physicalProperties"] }
+          },
+          "action": { "const": "restore_from_trusted_reference" }
+        },
+        "additionalProperties": false
+      }
+    },
     "reviews": {
       "type": "array",
       "items": {
         "type": "object",
         "required": ["round_index", "review_path", "status", "requested_provider",
                      "actual_mode", "fallback_used", "fallback_reason", "model",
-                     "prompt_version", "trace", "decision", "finding_codes",
+                     "prompt_version", "trace", "decision", "finding_codes", "experience_ids",
                      "repair_scope", "root_cause", "recommendation",
                      "applicability_conditions", "limitations", "error"],
         "properties": {
@@ -180,6 +211,7 @@
           "trace": { "type": ["object", "null"] },
           "decision": { "enum": ["accept", "repair", "stop", null] },
           "finding_codes": { "type": "array", "items": { "type": "string" } },
+          "experience_ids": { "type": "array", "items": { "type": "string" } },
           "repair_scope": { "enum": ["none", "boundary_fields", "transport", "boundary_and_transport"] },
           "root_cause": { "type": "string" },
           "recommendation": { "type": "string" },
@@ -232,6 +264,77 @@
         "experience_reused": { "type": "boolean" }
       },
       "additionalProperties": true
+    },
+    "memory": {
+      "type": "object",
+      "required": ["store_path", "retrieved_experience_ids", "uses",
+                   "retrievals",
+                   "learned_experience_ids", "learned_procedure_ids",
+                   "archived_episode_path", "learning_enabled", "cache_key",
+                   "cache_hit", "cached_case_path"],
+      "properties": {
+        "store_path": { "type": "string" },
+        "retrieved_experience_ids": {
+          "type": "array", "uniqueItems": true, "items": { "type": "string" }
+        },
+        "retrievals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["stage", "query", "vector_version", "matches"],
+            "properties": {
+              "stage": { "enum": ["planner", "case_writer", "reviewer"] },
+              "query": { "type": "string" },
+              "vector_version": { "type": "string" },
+              "matches": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["experience_id", "vector_score", "reynolds_score",
+                               "confidence", "final_score"],
+                  "properties": {
+                    "experience_id": { "type": "string" },
+                    "vector_score": { "type": "number", "minimum": 0, "maximum": 1 },
+                    "reynolds_score": { "type": "number", "minimum": 0, "maximum": 1 },
+                    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+                    "final_score": { "type": "number", "minimum": 0, "maximum": 1 }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "uses": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["experience_id", "agent", "round_index", "decision", "effect"],
+            "properties": {
+              "experience_id": { "type": "string" },
+              "agent": { "enum": ["planner", "case_writer", "reviewer"] },
+              "round_index": { "type": "integer", "minimum": 0 },
+              "decision": { "type": "string" },
+              "effect": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "learned_experience_ids": {
+          "type": "array", "uniqueItems": true, "items": { "type": "string" }
+        },
+        "learned_procedure_ids": {
+          "type": "array", "uniqueItems": true, "items": { "type": "string" }
+        },
+        "archived_episode_path": { "type": ["string", "null"] }
+        ,
+        "learning_enabled": { "type": "boolean" },
+        "cache_key": { "type": ["string", "null"] },
+        "cache_hit": { "type": "boolean" },
+        "cached_case_path": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false,
@@ -262,16 +365,35 @@
   },
   "allOf": [
     {
-      "if": { "required": ["schema_version"] },
+      "if": {
+        "required": ["schema_version"],
+        "properties": { "schema_version": { "const": 2 } }
+      },
       "then": {
         "required": ["task", "input", "runner_mode", "physical_validated", "started_at",
                      "workflow_path", "episode_path", "report_path", "max_corrections",
                      "findings", "stop_reason", "rounds", "corrections", "injected_fault",
-                     "metrics", "diagnosis", "planning", "case_writing", "reviews"],
+                     "preventions", "metrics", "diagnosis", "planning", "case_writing", "reviews"],
         "properties": {
           "mode": { "const": "no_memory" },
           "status": { "enum": ["simulated_success", "completed", "failed", "blocked", "timeout", "execution_error", "interrupted"] },
           "metrics": { "properties": { "experience_reused": { "const": false } } }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["schema_version"],
+        "properties": { "schema_version": { "const": 3 } }
+      },
+      "then": {
+        "required": ["task", "input", "runner_mode", "physical_validated", "started_at",
+                     "workflow_path", "episode_path", "report_path", "max_corrections",
+                     "findings", "stop_reason", "rounds", "corrections", "injected_fault",
+                     "preventions", "metrics", "diagnosis", "planning", "case_writing", "reviews", "memory"],
+        "properties": {
+          "mode": { "enum": ["simple_cache", "retrieval_only", "cfd_memo"] },
+          "status": { "enum": ["simulated_success", "completed", "failed", "blocked", "timeout", "execution_error", "interrupted"] }
         }
       }
     }

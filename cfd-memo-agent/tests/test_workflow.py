@@ -251,6 +251,8 @@ def test_process_interrupt_terminates_child_before_reraising(tmp_path, monkeypat
     {"description": "cylinder flow", "max_corrections": True},
     {"description": "cylinder flow", "timeout": float("nan")},
     {"description": "cylinder flow", "mode": "real", "fault": "bad-transport"},
+    {"description": "cylinder flow", "memory_mode": "unknown"},
+    {"description": "cylinder flow", "memory_dir": "unused"},
 ])
 def test_bad_options_do_not_create_workflow(tmp_path, options):
     options.setdefault("mode", "simulated")
@@ -349,6 +351,8 @@ def test_cli_failed_task_and_zero_budget_exit_one(tmp_path, task_path):
     ["run", "--run", "old", "--fault", "bad-transport", "--runner", "simulated"],
     ["run", "cylinder flow", "--scenario", "success", "--runner", "simulated"],
     ["run", "cylinder flow", "--fault", "bad-transport", "--runner", "real"],
+    ["run", "cylinder flow", "--runner", "simulated", "--memory-dir", "unused"],
+    ["run", "--run", "old", "--runner", "simulated", "--memory-mode", "cfd_memo"],
 ])
 def test_cli_invalid_combinations_exit_two(tmp_path, args):
     result = cli(tmp_path, *args)

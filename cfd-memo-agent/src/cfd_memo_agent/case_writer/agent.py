@@ -30,6 +30,8 @@ INSTRUCTIONS = """你是 CFD-Memo 的 Case Writer Agent。输入是已经通过�
 4. 发现无法安全表达的矛盾时 status=blocked、intent=null，并说明 blockers。
 5. rationale 简要说明写入计划；warnings 只记录尚需 validator/runner 验证的事项。
 6. 不得声称网格、求解或物理结果已经通过验证。
+7. memory_context 只能用于增加受限防错检查；experience_ids 必须准确引用给定经验，
+   preventive_files 只能列出经验 action 中已有的允许文件。
 """
 
 
@@ -60,8 +62,19 @@ def validate_case_intent(task: dict[str, Any], intent: Any) -> None:
         raise ValueError("Case Writer intent 与已验证 task 或允许的文件映射不一致")
 
 
-def case_writer_output_schema(task: dict[str, Any]) -> dict[str, Any]:
+def _memory_expectations(memory_context: list[dict[str, Any]]) -> tuple[list[str], list[str]]:
+    ids = list(dict.fromkeys(item["experience_id"] for item in memory_context))
+    files = sorted({
+        path for item in memory_context for path in item["action"]["files"]
+    })
+    return ids, files
+
+
+def case_writer_output_schema(
+    task: dict[str, Any], memory_context: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     expected = build_case_intent(task)
+    experience_ids, preventive_files = _memory_expectations(memory_context or [])
     bindings = {
         key: {"const": value} for key, value in expected["file_bindings"].items()
     }
@@ -87,8 +100,19 @@ def case_writer_output_schema(task: dict[str, Any]) -> dict[str, Any]:
             "rationale": {"type": "array", "items": {"type": "string"}},
             "warnings": {"type": "array", "items": {"type": "string"}},
             "blockers": {"type": "array", "items": {"type": "string"}},
+            "experience_ids": {
+                "type": "array", "minItems": len(experience_ids),
+                "maxItems": len(experience_ids), "uniqueItems": True,
+                "items": {"enum": experience_ids} if experience_ids else {"type": "string"},
+            },
+            "preventive_files": {
+                "type": "array", "minItems": len(preventive_files),
+                "maxItems": len(preventive_files), "uniqueItems": True,
+                "items": {"enum": preventive_files} if preventive_files else {"type": "string"},
+            },
         },
-        "required": ["status", "intent", "rationale", "warnings", "blockers"],
+        "required": ["status", "intent", "rationale", "warnings", "blockers",
+                     "experience_ids", "preventive_files"],
         "additionalProperties": False,
     }
 
@@ -100,6 +124,8 @@ class CaseWriterDecision:
     rationale: list[str]
     warnings: list[str]
     blockers: list[str]
+    experience_ids: list[str]
+    preventive_files: list[str]
     trace: dict[str, Any]
 
 
@@ -117,17 +143,30 @@ class CaseWriterAgent:
     def __init__(self, client: ModelClient):
         self.client = client
 
-    def prepare(self, task: dict[str, Any]) -> CaseWriterDecision:
-        schema = case_writer_output_schema(task)
+    def prepare(
+        self, task: dict[str, Any], *, memory_context: list[dict[str, Any]] | None = None,
+    ) -> CaseWriterDecision:
+        memories = memory_context or []
+        expected_ids, expected_files = _memory_expectations(memories)
+        schema = case_writer_output_schema(task, memories)
         result = self.client.complete_json(ModelRequest(
             role="case_writer",
             instructions=INSTRUCTIONS,
-            input_text=json.dumps(task, ensure_ascii=False, indent=2, allow_nan=False),
+            input_text=json.dumps({"task": task, "memory_context": memories},
+                                  ensure_ascii=False, indent=2, allow_nan=False),
             output_schema=schema,
             schema_name="cfd_memo_case_writing_decision",
             prompt_version=PROMPT_VERSION,
         ))
         output = result.output
+        if set(output["experience_ids"]) != set(expected_ids):
+            raise CaseWriterDecisionError(
+                "Case Writer experience_ids 与注入经验不一致", result.trace,
+            )
+        if set(output["preventive_files"]) != set(expected_files):
+            raise CaseWriterDecisionError(
+                "Case Writer preventive_files 与经验允许文件不一致", result.trace,
+            )
         if output["status"] == "blocked":
             if output["intent"] is not None or not output["blockers"]:
                 raise CaseWriterDecisionError(
@@ -144,7 +183,8 @@ class CaseWriterAgent:
                 raise CaseWriterDecisionError(str(exc), result.trace) from exc
         return CaseWriterDecision(
             output["status"], output["intent"], output["rationale"],
-            output["warnings"], output["blockers"], result.trace,
+            output["warnings"], output["blockers"], output["experience_ids"],
+            output["preventive_files"], result.trace,
         )
 
 

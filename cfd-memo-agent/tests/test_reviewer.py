@@ -18,14 +18,15 @@ def evidence(*, status="failed", findings=None):
             "solver": "icoFoam",
         },
         "findings": findings or [], "runtime_blockers": [],
-        "physical_validated": False,
+        "physical_validated": False, "memory_context": [],
     }
 
 
-def output(*, decision="accept", codes=None, scope="none"):
+def output(*, decision="accept", codes=None, scope="none", experiences=None):
     return {
         "status": "reviewed", "decision": decision,
-        "finding_codes": codes or [], "repair_scope": scope,
+        "finding_codes": codes or [], "experience_ids": experiences or [],
+        "repair_scope": scope,
         "root_cause": "基于提供的结构化证据。",
         "recommendation": "交由确定性工具处理并复验。",
         "applicability_conditions": ["仅适用于当前 task。"],

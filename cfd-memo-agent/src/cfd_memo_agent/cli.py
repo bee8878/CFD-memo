@@ -10,6 +10,7 @@ from pathlib import Path
 from cfd_memo_agent.diagnoser import diagnose_log
 from cfd_memo_agent.generator import generate_case
 from cfd_memo_agent.models import ModelConfigurationError, ModelSettings
+from cfd_memo_agent.memory_study import analyze_memory_study, run_memory_study
 from cfd_memo_agent.orchestrator import plan_description
 from cfd_memo_agent.physical_study import continue_physical_study, run_physical_study
 from cfd_memo_agent.runner import run_case
@@ -56,6 +57,14 @@ def main() -> None:
     run_parser.add_argument("--timeout", type=float, default=300.0, help="Timeout per real command in seconds")
     run_parser.add_argument("--planner-fallback", choices=("stop", "rules"), default="stop",
                             help="Explicit behavior when an LLM planner fails")
+    run_parser.add_argument("--memory-mode",
+                            choices=("no_memory", "simple_cache", "retrieval_only", "cfd_memo"),
+                            default="no_memory",
+                            help="Use no history or the local structured memory store")
+    run_parser.add_argument("--memory-dir", type=Path,
+                            help="Local history store; invalid only with no_memory")
+    run_parser.add_argument("--freeze-memory", action="store_true",
+                            help="Read existing history without learning from this evaluation task")
 
     diagnose_parser = subparsers.add_parser("diagnose", help="Diagnose an existing log without running commands")
     diagnose_parser.add_argument("--log", required=True, type=Path)
@@ -76,12 +85,22 @@ def main() -> None:
     study_parser.add_argument("--timeout", type=float, default=1800.0,
                               help="Timeout per OpenFOAM command in seconds")
 
+    memory_study_parser = subparsers.add_parser(
+        "memory-study", help="Run the frozen four-group configuration-memory experiment",
+    )
+    memory_study_parser.add_argument("--output-dir", type=Path)
+    memory_study_parser.add_argument("--repeats", type=int,
+                                     help="Override the frozen formal repeat count")
+    memory_study_parser.add_argument("--analyze", type=Path,
+                                     help="Analyze an existing memory-study directory")
+
     subparsers.add_parser("model-info", help="Show redacted Stage D model configuration")
 
     args = parser.parse_args()
 
     if args.command in {
-        "plan", "generate", "run", "diagnose", "validate", "physics-study", "model-info",
+        "plan", "generate", "run", "diagnose", "validate", "physics-study",
+        "memory-study", "model-info",
     }:
         for stream in (sys.stdout, sys.stderr):
             if hasattr(stream, "reconfigure"):
@@ -95,12 +114,29 @@ def main() -> None:
         print(json.dumps(status, ensure_ascii=False, indent=2))
         return
 
+    if args.command == "memory-study":
+        try:
+            if args.analyze is not None:
+                if args.output_dir is not None or args.repeats is not None:
+                    parser.error("--analyze 不接受 --output-dir 或 --repeats")
+                result = analyze_memory_study(args.analyze)
+            else:
+                result = run_memory_study(output_dir=args.output_dir, repeats=args.repeats)
+        except (ValueError, OSError) as exc:
+            parser.error(str(exc))
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return
+
     if args.command == "run":
         if sum(value is not None for value in (args.description, args.task, args.run)) != 1:
             parser.error("run 必须选择需求、--task 或 --run 中的一种输入")
         if args.run is not None and any(value is not None for value in
                                         (args.fault, args.max_corrections, args.runs_dir)):
             parser.error("--run 是 C4 单次执行，不接受 --fault、--max-corrections 或 --runs-dir")
+        if args.run is not None and (
+            args.memory_mode != "no_memory" or args.memory_dir is not None or args.freeze_memory
+        ):
+            parser.error("--run 是 C4 单次执行，不接受长期记忆选项")
         if args.run is None and args.scenario is not None:
             parser.error("--scenario 仅用于 C4 的 --run；工作流故障演示请使用 --fault")
         try:
@@ -110,7 +146,10 @@ def main() -> None:
                 result = run_workflow(args.description, task_path=args.task, mode=args.runner,
                                       runs_dir=args.runs_dir, max_corrections=args.max_corrections,
                                       timeout=args.timeout, fault=args.fault,
-                                      planner_fallback=args.planner_fallback)
+                                      planner_fallback=args.planner_fallback,
+                                      memory_mode=args.memory_mode,
+                                      memory_dir=args.memory_dir,
+                                      memory_learning=not args.freeze_memory)
         except (ValueError, OSError, ModelConfigurationError) as exc:
             parser.error(str(exc))
         print(json.dumps(result, ensure_ascii=False, indent=2))

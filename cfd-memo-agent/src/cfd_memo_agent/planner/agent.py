@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
+import json
 from typing import Any
 
 from cfd_memo_agent.models import ModelClient, ModelOutputError, ModelRequest
@@ -23,6 +24,8 @@ INSTRUCTIONS = """你是 CFD-Memo 的 Planner Agent。你的唯一任务是把�
    task=null，并在 questions 中给出简短、具体的问题。
 4. 满足 Re=U*D/nu；不得捏造求解结果，不得输出 Markdown，不得添加 schema 外字段。
 5. task_id 使用 task-cylinder-2d-re<雷诺数>；小数点用 p 替代。
+6. memory_context 是已通过适用性筛选的历史配置经验。它只能用于补充防错假设，不能覆盖
+   用户明确参数或声称物理结果正确；experience_ids 必须准确列出给定经验编号。
 """
 
 
@@ -59,8 +62,9 @@ PLANNER_OUTPUT_SCHEMA: dict[str, Any] = {
         "task": {"anyOf": [STRICT_TASK_SCHEMA, {"type": "null"}]},
         "assumptions": {"type": "array", "items": {"type": "string"}},
         "questions": {"type": "array", "items": {"type": "string"}},
+        "experience_ids": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["status", "task", "assumptions", "questions"],
+    "required": ["status", "task", "assumptions", "questions", "experience_ids"],
     "additionalProperties": False,
 }
 
@@ -71,6 +75,7 @@ class PlanningDecision:
     task: dict[str, Any] | None
     assumptions: list[str]
     questions: list[str]
+    experience_ids: list[str]
     trace: dict[str, Any]
 
 
@@ -88,15 +93,24 @@ class PlannerAgent:
     def __init__(self, client: ModelClient):
         self.client = client
 
-    def plan(self, description: str) -> PlanningDecision:
+    def plan(self, description: str, *, memory_context: list[dict[str, Any]] | None = None) -> PlanningDecision:
         normalized = description.strip()
         if not normalized:
             raise ValueError("Task description cannot be empty.")
+        memories = memory_context or []
+        expected_ids = list(dict.fromkeys(item["experience_id"] for item in memories))
+        output_schema = deepcopy(PLANNER_OUTPUT_SCHEMA)
+        ids_schema = output_schema["properties"]["experience_ids"]
+        ids_schema.update({"minItems": len(expected_ids), "maxItems": len(expected_ids),
+                           "uniqueItems": True})
+        if expected_ids:
+            ids_schema["items"] = {"enum": expected_ids}
         request = ModelRequest(
             role="planner",
             instructions=INSTRUCTIONS,
-            input_text=normalized,
-            output_schema=PLANNER_OUTPUT_SCHEMA,
+            input_text=json.dumps({"description": normalized, "memory_context": memories},
+                                  ensure_ascii=False, indent=2, allow_nan=False),
+            output_schema=output_schema,
             schema_name="cfd_memo_planning_decision",
             prompt_version=PROMPT_VERSION,
         )
@@ -106,6 +120,9 @@ class PlannerAgent:
         task = output["task"]
         assumptions = output["assumptions"]
         questions = output["questions"]
+        experience_ids = output["experience_ids"]
+        if set(experience_ids) != set(expected_ids):
+            raise PlannerDecisionError("Planner experience_ids 与注入经验不一致", result.trace)
         if status == "needs_clarification":
             if task is not None or not questions:
                 raise PlannerDecisionError(
@@ -122,7 +139,9 @@ class PlannerAgent:
                 )
                 raise PlannerDecisionError(
                     f"模型任务未通过 CFD 规则检查：{details}", result.trace)
-        return PlanningDecision(status, task, assumptions, questions, result.trace)
+        return PlanningDecision(
+            status, task, assumptions, questions, experience_ids, result.trace,
+        )
 
 
 __all__ = [
