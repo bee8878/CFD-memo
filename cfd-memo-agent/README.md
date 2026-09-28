@@ -16,6 +16,27 @@ This project is a local engineering prototype for a memory-enhanced CFD agent. I
 The current machine has the fixed C6 OpenFOAM backend. Sample logs remain
 available only for explicit simulated tests.
 
+## H1：CaseSpec、能力注册表与已有 case 导入
+
+阶段 H 的第一版把“任务是什么”和“程序会什么”从圆柱模板中分离出来：
+
+- `CaseSpec` 统一记录求解器、物理模型、字段、边界、网格来源和时间控制。
+- 能力注册表当前声明 `icoFoam` 的已验证导入能力，并把 `simpleFoam` 明确标为尚未
+  支持；不会因为登记了求解器名称就假装能够生成或运行对应 case。
+- `import-case` 检查已有 OpenFOAM 目录，保存 `original/` 原件、`case/` 工作副本、
+  `case-spec.json` 和 `import.json`。符号链接和不支持的求解器会在复制前被拒绝。
+
+```powershell
+.\.venv\Scripts\python.exe -m cfd_memo_agent.cli capabilities
+.\.venv\Scripts\python.exe -m cfd_memo_agent.cli import-case "D:\OpenFOAM-Cases\cavity"
+.\.venv\Scripts\python.exe -m cfd_memo_agent.cli validate --run "cases\runs\import-..."
+.\.venv\Scripts\python.exe -m cfd_memo_agent.cli run --run "cases\runs\import-..." --runner real
+```
+
+导入 case 只允许真实运行，不提供模拟成功。runner 不执行来源目录中的 `Allrun`
+或其他脚本，只按能力注册表调用 `blockMesh`（需要时）、`checkMesh` 和求解器。
+每次真实执行仍发生在独立 attempt 副本中，原件和导入工作副本保持不变。
+
 ## D1：统一模型接口
 
 D1 已建立统一的结构化模型调用接口，默认仍使用现有规则 planner，不会自动发起

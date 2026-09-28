@@ -81,6 +81,11 @@ def run_case(run_dir: Path | str, *, mode: str, scenario: str | None = None,
     root = Path(run_dir).absolute()
     if not root.is_dir():
         raise ValueError(f"运行目录不存在：{root}")
+    if (root / "case-spec.json").is_file() and not (root / "task.json").is_file():
+        if mode != "real":
+            raise ValueError("导入 case 只支持真实运行；不会用模拟日志冒充结果")
+        from .imported import run_imported_case
+        return run_imported_case(root, timeout=timeout, execute=_execute)
     started = time.monotonic()
     attempt = root / "attempts" / f"attempt-{uuid4().hex}"
     attempt.mkdir(parents=True)

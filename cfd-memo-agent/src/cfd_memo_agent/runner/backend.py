@@ -10,6 +10,7 @@ from uuid import uuid4
 DISTRO = 'Ubuntu-22.04'
 BASHRC = '/opt/openfoam10/etc/bashrc'
 STAGES = ('blockMesh', 'checkMesh', 'icoFoam')
+ALLOWED_STAGES = frozenset((*STAGES, 'simpleFoam'))
 
 
 def _text(data):
@@ -23,8 +24,11 @@ def _capture(command):
     return _text(result.stdout)
 
 
-def discover():
-    native = {stage: shutil.which(stage) for stage in STAGES}
+def discover(stages=STAGES):
+    stages = tuple(stages)
+    if not stages or len(set(stages)) != len(stages) or not set(stages) <= ALLOWED_STAGES:
+        raise ValueError('Unsupported OpenFOAM command plan')
+    native = {stage: shutil.which(stage) for stage in stages}
     if all(native.values()):
         version = os.environ.get('WM_PROJECT_VERSION')
         if version != '10':
@@ -34,14 +38,17 @@ def discover():
         raise OSError('Foundation OpenFOAM 10 commands unavailable')
     prefix = [shutil.which('wsl'), '--distribution', DISTRO, '--exec']
     output = _capture(prefix + ['bash', '-c',
-        'source "$1" >/dev/null || exit; test "$WM_PROJECT_VERSION" = 10 || exit 1; '
-        'command -v blockMesh checkMesh icoFoam; printf "VERSION=%s\\n" "$WM_PROJECT_VERSION"',
-        'cfd-memo-probe', BASHRC])
+        'source "$1" >/dev/null || exit; shift; '
+        'test "$WM_PROJECT_VERSION" = 10 || exit 1; '
+        'for command in "$@"; do command -v -- "$command" || exit; done; '
+        'printf "VERSION=%s\\n" "$WM_PROJECT_VERSION"',
+        'cfd-memo-probe', BASHRC, *stages])
     lines = output.splitlines()
-    if len(lines) != 4 or lines[-1] != 'VERSION=10' or not all(s.startswith('/') for s in lines[:3]):
+    if (len(lines) != len(stages) + 1 or lines[-1] != 'VERSION=10'
+            or not all(s.startswith('/') for s in lines[:-1])):
         raise OSError('Unexpected OpenFOAM 10 environment probe response')
     return {'backend': 'wsl', 'version': '10', 'distribution': DISTRO,
-            'prefix': prefix, 'executables': dict(zip(STAGES, lines[:3]))}
+            'prefix': prefix, 'executables': dict(zip(stages, lines[:-1]))}
 
 
 def wsl_path(environment, path):

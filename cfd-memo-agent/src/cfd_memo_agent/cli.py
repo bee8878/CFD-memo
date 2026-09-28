@@ -7,6 +7,8 @@ import json
 import sys
 from pathlib import Path
 
+from cfd_memo_agent.capabilities import list_capabilities
+from cfd_memo_agent.case_import import import_case, load_case_spec, validate_imported_case
 from cfd_memo_agent.diagnoser import diagnose_log
 from cfd_memo_agent.generator import generate_case
 from cfd_memo_agent.models import ModelConfigurationError, ModelSettings
@@ -44,6 +46,13 @@ def main() -> None:
     validate_parser = subparsers.add_parser("validate", help="Check task and case consistency")
     validate_parser.add_argument("--run", required=True, type=Path, help="C2 run directory")
     validate_parser.add_argument("--output", type=Path, help="Save a new report without overwriting")
+
+    import_parser = subparsers.add_parser(
+        "import-case", help="Inspect and copy an existing OpenFOAM case safely")
+    import_parser.add_argument("source", type=Path, help="Existing OpenFOAM case directory")
+    import_parser.add_argument("--runs-dir", type=Path, help="Parent directory for imported runs")
+
+    subparsers.add_parser("capabilities", help="List supported solver capabilities")
 
     run_parser = subparsers.add_parser("run", help="Run a workflow or execute one saved C2 run")
     run_parser.add_argument("description", nargs="?", help="Natural language task for a workflow")
@@ -100,7 +109,7 @@ def main() -> None:
 
     if args.command in {
         "plan", "generate", "run", "diagnose", "validate", "physics-study",
-        "memory-study", "model-info",
+        "memory-study", "model-info", "import-case", "capabilities",
     }:
         for stream in (sys.stdout, sys.stderr):
             if hasattr(stream, "reconfigure"):
@@ -113,6 +122,18 @@ def main() -> None:
             parser.error(str(exc))
         print(json.dumps(status, ensure_ascii=False, indent=2))
         return
+
+    if args.command == "capabilities":
+        print(json.dumps({"capabilities": list_capabilities()}, ensure_ascii=False, indent=2))
+        return
+
+    if args.command == "import-case":
+        try:
+            result = import_case(args.source, runs_dir=args.runs_dir)
+        except (ValueError, OSError, UnicodeError) as exc:
+            parser.error(str(exc))
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        raise SystemExit(0 if result["validation"]["config_valid"] else 1)
 
     if args.command == "memory-study":
         try:
@@ -187,14 +208,24 @@ def main() -> None:
 
     if args.command == "validate":
         run_dir = args.run.resolve()
-        try:
-            task = read_json(run_dir / "task.json")
-        except (OSError, UnicodeError, ValueError, RecursionError) as exc:
-            report = new_report()
-            report["errors"].append(issue("TASK_READ", f"任务文件无法读取或格式错误：{exc}",
-                                          str(run_dir / "task.json")))
+        if (run_dir / "case-spec.json").is_file() and not (run_dir / "task.json").is_file():
+            try:
+                spec = load_case_spec(run_dir / "case-spec.json")
+                report = validate_imported_case(spec, run_dir / "case")
+            except (OSError, UnicodeError, ValueError, TypeError, KeyError) as exc:
+                report = new_report()
+                report["errors"].append(issue(
+                    "CASE_SPEC_READ", f"CaseSpec 无法读取或格式错误：{exc}",
+                    str(run_dir / "case-spec.json")))
         else:
-            report = validate_case(task, run_dir / "case")
+            try:
+                task = read_json(run_dir / "task.json")
+            except (OSError, UnicodeError, ValueError, RecursionError) as exc:
+                report = new_report()
+                report["errors"].append(issue("TASK_READ", f"任务文件无法读取或格式错误：{exc}",
+                                              str(run_dir / "task.json")))
+            else:
+                report = validate_case(task, run_dir / "case")
         rendered = json.dumps(report, ensure_ascii=False, indent=2)
         if args.output:
             try:
