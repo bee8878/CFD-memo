@@ -1,0 +1,37 @@
+{
+  "task_id": "task-cavity-2d-re100",
+  "case_type": "cavity-2d",
+  "solver": "icoFoam",
+  "geometry": {
+    "dimension": "2D",
+    "width": 1.0,
+    "height": 1.0,
+    "depth": 0.1
+  },
+  "physics": {
+    "flow_model": "incompressible_laminar",
+    "reynolds_number": 100,
+    "lid_velocity": 1.0,
+    "kinematic_viscosity": 0.01
+  },
+  "boundary_conditions": {
+    "movingWall": {"U": "fixedValue", "p": "zeroGradient"},
+    "fixedWalls": {"U": "noSlip", "p": "zeroGradient"},
+    "frontAndBack": {"U": "empty", "p": "empty"}
+  },
+  "mesh": {
+    "generator": "manual-template",
+    "cells_x": 20,
+    "cells_y": 20
+  },
+  "time_control": {
+    "start_time": 0,
+    "end_time": 0.5,
+    "delta_t": 0.005,
+    "write_interval": 0.1
+  },
+  "convergence": {
+    "residual_target": 1e-6,
+    "max_corrections": 2
+  }
+}

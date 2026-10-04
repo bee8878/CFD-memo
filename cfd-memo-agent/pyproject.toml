@@ -18,6 +18,9 @@ dev = ["pytest>=8,<10"]
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+cfd_memo_agent = ["tutorial_capabilities.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]

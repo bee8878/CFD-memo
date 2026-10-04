@@ -47,7 +47,7 @@ _CAPABILITIES = {
         time_mode="steady",
         required_fields=("U", "p"),
         required_files=_COMMON_FILES,
-        generated_case_support=False,
+        generated_case_support=True,
         imported_case_support=False,
     ),
 }

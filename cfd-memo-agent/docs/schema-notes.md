@@ -4,15 +4,18 @@
 
 `schemas/task.schema.json` describes the user-requested CFD task after planning. It captures the case type, solver, geometry, physics, boundary conditions, mesh intent, time control, and convergence target.
 
-For Stage B, the schema is intentionally narrow: `case_type` is `cylinder-2d`, `dimension` is `2D`, and `flow_model` is `incompressible_laminar`.
+The schema remains capability-gated. Registered generated tasks are `cylinder-2d`,
+`cavity-2d`, and the reviewed tutorial-derived `backward-step-2d`; all are 2D.
 
 ## C3 任务约束
 
 schema 采用 JSON Schema Draft 2020-12，通过 jsonschema 库执行。
 计算域 domain_length/domain_height 现为必填项；六个边界均须提供字符串 U/p，
 start_time 必须非负。原有示例无需迁移，缺少这些字段的旧任务须补齐。
-solver 枚举仍保留 pimpleFoam，但当前验证器只接受 icoFoam 和默认边界组合，
-网格生成器只接受 manual-template（字段省略时按当前模板模式处理）。
+solver 枚举包含 `icoFoam`、预留的 `pimpleFoam` 和 I3 的 `simpleFoam`。
+`simpleFoam` 只对 `backward-step-2d` 开放，并要求 `tutorial_reference` 固定为
+OpenFOAM 10 `incompressible/simpleFoam/pitzDaily`、`confirmed=true` 和 64 位
+白名单指纹。其网格生成器只能是 `tutorial-template`；其他场景不能借此绕过适配器检查。
 
 Python 额外检查有限数值、nu=U*D/Re、时间先后关系、圆柱直径小于计算域。
 数值一致性使用相对误差 1e-8、绝对误差 1e-10。task schema 是唯一结构定义，
@@ -99,3 +102,25 @@ Episodes are archived under the local memory store in `episodes/`. E1-E2 also de
 steps. Episode v3 records Planner/Case Writer/Reviewer experience IDs, vector retrieval scores,
 confidence-backed uses, and run-before prevention evidence. `verified` means deterministic
 configuration validation passed; it does not mean the CFD physics was validated.
+
+## I4 教程批准续跑
+
+I4 继续使用 episode v2，并增加可选的 `tutorial_resume`。该对象保存父 episode
+编号、父工作流路径、显式批准记录、受控 Builder 记录和 `approved=true`。
+它只出现在批准后的子 episode 中，因此既有 episode 无需迁移。
+
+批准时间、提案摘要、教程 ID 和 runner 模式另存于 `approval.json`。子 episode
+位于父工作流的 `resumes/resume-*`，原 `proposal_ready` episode 不被改写。
+真实命令完成仍保持 `physical_validated=false`；该字段只说明审批和工程执行链可追溯，
+不代表教程结果已完成物理准确性验证。
+
+## I5 教程能力清单
+
+`tutorial_capabilities.json` 是 Builder 的安装时能力数据，当前包含 OpenFOAM 10
+`simpleFoam/pitzDaily` 和 `icoFoam/cavity/cavity`。每项声明教程、求解器、物理模型、
+adapter、必需字段、网格工具、文件白名单和冻结 task 模板。Python 只负责严格读取、
+来源指纹、adapter 匹配和统一调度，不再按教程 ID 编写 Builder 分支。
+
+方腔教程 task 使用已有 `cavity-2d` schema，并增加 `tutorial_reference`；该来源只能与
+`tutorial-template` 网格同时出现。`CaseSpec.source_type=tutorial`，来源路径、manifest、
+复制文件及脚本禁用状态写入 `tutorial-provenance.json`。旧的手工方腔 task 不需要迁移。

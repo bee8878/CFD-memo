@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from cfd_memo_agent.capabilities import list_capabilities
+from cfd_memo_agent.case_adapters import list_case_adapters
 from cfd_memo_agent.case_import import import_case, load_case_spec, validate_imported_case
 from cfd_memo_agent.diagnoser import diagnose_log
 from cfd_memo_agent.generator import generate_case
@@ -17,6 +18,13 @@ from cfd_memo_agent.orchestrator import plan_description
 from cfd_memo_agent.physical_study import continue_physical_study, run_physical_study
 from cfd_memo_agent.runner import run_case
 from cfd_memo_agent.runner.execution import COMMANDS, SCENARIOS
+from cfd_memo_agent.tutorials import (
+    DEFAULT_DISTRIBUTION, DEFAULT_OPENFOAM_VERSION, build_tutorial_index,
+    load_tutorial_index, save_tutorial_index, search_tutorials, wsl_tutorial_root,
+)
+from cfd_memo_agent.tutorial_builder import build_tutorial_case
+from cfd_memo_agent.tutorial_capabilities import list_tutorial_capabilities
+from cfd_memo_agent.tutorial_resume import resume_tutorial_workflow
 from cfd_memo_agent.correction import FAULTS
 from cfd_memo_agent.workflow import run_workflow
 from cfd_memo_agent.validator import validate_case
@@ -35,6 +43,8 @@ def main() -> None:
                              help="Show shared planning state instead of only task JSON")
     plan_parser.add_argument("--fallback", choices=("stop", "rules"), default="stop",
                              help="Explicit behavior when an LLM planner fails")
+    plan_parser.add_argument("--tutorial-index", type=Path,
+                             help="Optional local OpenFOAM tutorial index")
 
     generate_parser = subparsers.add_parser("generate", help="Generate an unverified case scaffold")
     generate_parser.add_argument("description", nargs="?", help="Natural language task")
@@ -42,6 +52,7 @@ def main() -> None:
     generate_parser.add_argument("--runs-dir", type=Path, help="Parent directory for new runs")
     generate_parser.add_argument("--template-dir", type=Path, help="Cylinder scaffold directory")
     generate_parser.add_argument("--planner-fallback", choices=("stop", "rules"), default="stop")
+    generate_parser.add_argument("--tutorial-index", type=Path)
 
     validate_parser = subparsers.add_parser("validate", help="Check task and case consistency")
     validate_parser.add_argument("--run", required=True, type=Path, help="C2 run directory")
@@ -53,6 +64,45 @@ def main() -> None:
     import_parser.add_argument("--runs-dir", type=Path, help="Parent directory for imported runs")
 
     subparsers.add_parser("capabilities", help="List supported solver capabilities")
+
+    tutorial_parser = subparsers.add_parser(
+        "tutorials", help="Build or query a read-only OpenFOAM tutorial index")
+    tutorial_actions = tutorial_parser.add_subparsers(dest="tutorial_action", required=True)
+    tutorial_default = Path(__file__).resolve().parents[2] / "cases/tutorial-index/openfoam10.json"
+    tutorial_index = tutorial_actions.add_parser("index", help="Index local tutorial dictionaries")
+    tutorial_index.add_argument("--root", type=Path,
+                                help="Tutorial root; defaults to the configured WSL OpenFOAM 10 path")
+    tutorial_index.add_argument("--distribution", default=DEFAULT_DISTRIBUTION)
+    tutorial_index.add_argument("--version", default=DEFAULT_OPENFOAM_VERSION)
+    tutorial_index.add_argument("--output", type=Path, default=tutorial_default)
+    tutorial_index.add_argument("--force", action="store_true",
+                                help="Atomically replace an existing local index")
+    tutorial_search = tutorial_actions.add_parser("search", help="Search a saved tutorial index")
+    tutorial_search.add_argument("--index", type=Path, default=tutorial_default)
+    tutorial_search.add_argument("--query")
+    tutorial_search.add_argument("--solver")
+    tutorial_search.add_argument("--physics-model")
+    tutorial_search.add_argument("--field", action="append", default=[])
+    tutorial_search.add_argument("--boundary-type", action="append", default=[])
+    tutorial_search.add_argument("--mesh-tool")
+    tutorial_search.add_argument("--limit", type=int, default=10)
+    tutorial_build = tutorial_actions.add_parser(
+        "build", help="Build the reviewed pitzDaily proposal without running it")
+    tutorial_build.add_argument("--proposal", required=True, type=Path)
+    tutorial_build.add_argument("--index", type=Path, default=tutorial_default)
+    tutorial_build.add_argument("--runs-dir", type=Path)
+
+    resume_parser = subparsers.add_parser(
+        "resume", help="Approve, build, and run one proposal-ready tutorial workflow")
+    resume_parser.add_argument("--workflow", required=True, type=Path,
+                               help="I2 proposal-ready workflow directory")
+    resume_parser.add_argument("--approve-tutorial", action="store_true",
+                               help="Explicitly approve the saved tutorial proposal")
+    resume_parser.add_argument("--runner", required=True, choices=("real",),
+                               help="I4 only accepts real OpenFOAM execution")
+    resume_parser.add_argument("--timeout", type=float, default=300.0,
+                               help="Timeout per real OpenFOAM command in seconds")
+    resume_parser.add_argument("--tutorial-index", type=Path, default=tutorial_default)
 
     run_parser = subparsers.add_parser("run", help="Run a workflow or execute one saved C2 run")
     run_parser.add_argument("description", nargs="?", help="Natural language task for a workflow")
@@ -74,6 +124,8 @@ def main() -> None:
                             help="Local history store; invalid only with no_memory")
     run_parser.add_argument("--freeze-memory", action="store_true",
                             help="Read existing history without learning from this evaluation task")
+    run_parser.add_argument("--tutorial-index", type=Path,
+                            help="Optional local OpenFOAM tutorial index for planning")
 
     diagnose_parser = subparsers.add_parser("diagnose", help="Diagnose an existing log without running commands")
     diagnose_parser.add_argument("--log", required=True, type=Path)
@@ -110,6 +162,7 @@ def main() -> None:
     if args.command in {
         "plan", "generate", "run", "diagnose", "validate", "physics-study",
         "memory-study", "model-info", "import-case", "capabilities",
+        "tutorials", "resume",
     }:
         for stream in (sys.stdout, sys.stderr):
             if hasattr(stream, "reconfigure"):
@@ -124,8 +177,55 @@ def main() -> None:
         return
 
     if args.command == "capabilities":
-        print(json.dumps({"capabilities": list_capabilities()}, ensure_ascii=False, indent=2))
+        print(json.dumps({
+            "capabilities": list_capabilities(),
+            "case_adapters": list_case_adapters(),
+            "tutorial_capabilities": list_tutorial_capabilities(),
+        }, ensure_ascii=False, indent=2))
         return
+
+    if args.command == "tutorials":
+        try:
+            if args.tutorial_action == "index":
+                root = args.root or wsl_tutorial_root(args.distribution, args.version)
+                index = build_tutorial_index(root, version=args.version)
+                target = save_tutorial_index(index, args.output, overwrite=args.force)
+                result = {
+                    "status": "indexed", "index_path": str(target),
+                    "tutorial_root": index["tutorial_root"],
+                    "openfoam_version": index["openfoam_version"],
+                    "case_count": index["case_count"],
+                    "skipped_count": index["skipped_count"],
+                    "scripts_executed": False,
+                }
+            elif args.tutorial_action == "search":
+                index = load_tutorial_index(args.index)
+                result = search_tutorials(
+                    index, query=args.query, solver=args.solver,
+                    physics_model=args.physics_model, fields=args.field,
+                    boundary_types=args.boundary_type, mesh_tool=args.mesh_tool,
+                    limit=args.limit,
+                )
+            else:
+                result = build_tutorial_case(
+                    args.proposal, index_path=args.index, runs_dir=args.runs_dir)
+        except (OSError, UnicodeError, ValueError) as exc:
+            parser.error(str(exc))
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        if args.tutorial_action == "build":
+            raise SystemExit(0 if result["status"] == "built" else 1)
+        return
+
+    if args.command == "resume":
+        try:
+            result = resume_tutorial_workflow(
+                args.workflow, approved=args.approve_tutorial, mode=args.runner,
+                timeout=args.timeout, tutorial_index_path=args.tutorial_index,
+            )
+        except (OSError, UnicodeError, ValueError) as exc:
+            parser.error(str(exc))
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        raise SystemExit(0 if result["status"] == "completed" else 1)
 
     if args.command == "import-case":
         try:
@@ -170,7 +270,8 @@ def main() -> None:
                                       planner_fallback=args.planner_fallback,
                                       memory_mode=args.memory_mode,
                                       memory_dir=args.memory_dir,
-                                      memory_learning=not args.freeze_memory)
+                                      memory_learning=not args.freeze_memory,
+                                      tutorial_index_path=args.tutorial_index)
         except (ValueError, OSError, ModelConfigurationError) as exc:
             parser.error(str(exc))
         print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -208,7 +309,7 @@ def main() -> None:
 
     if args.command == "validate":
         run_dir = args.run.resolve()
-        if (run_dir / "case-spec.json").is_file() and not (run_dir / "task.json").is_file():
+        if (run_dir / "import.json").is_file() and (run_dir / "case-spec.json").is_file():
             try:
                 spec = load_case_spec(run_dir / "case-spec.json")
                 report = validate_imported_case(spec, run_dir / "case")
@@ -245,7 +346,9 @@ def main() -> None:
                 if args.task else None
             )
             if task is None:
-                state = plan_description(args.description, fallback=args.planner_fallback)
+                state = plan_description(
+                    args.description, fallback=args.planner_fallback,
+                    tutorial_index_path=args.tutorial_index)
                 if state["status"] != "ready":
                     detail = "；".join(state["questions"])
                     if not detail and state["error"]:
@@ -260,7 +363,9 @@ def main() -> None:
 
     if args.command == "plan":
         try:
-            state = plan_description(args.description, fallback=args.fallback)
+            state = plan_description(
+                args.description, fallback=args.fallback,
+                tutorial_index_path=args.tutorial_index)
         except ModelConfigurationError as exc:
             parser.error(str(exc))
         value = state if args.details or state["status"] != "ready" else state["task"]

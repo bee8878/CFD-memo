@@ -234,6 +234,20 @@ C5/E 输出到 `cases/runs/workflow-<唯一编号>/`：input、task 检查、可
 
 ### 当前下一步
 
-H1 已完成 `CaseSpec`、求解器能力注册表和已有 case 的安全导入：保存原件与工作副本，支持统一验证，并按注册命令真实执行而不运行导入脚本。H 尚未全部完成，因为现有 generator/validator 仍有圆柱专用逻辑。
+H1 已完成 `CaseSpec`、求解器能力注册表和已有 case 的安全导入：保存原件与工作副本，支持统一验证，并按注册命令真实执行而不运行导入脚本。
 
-下一步执行 H2：让现有圆柱 generator 和 validator 通过能力层取得求解器、字段及文件要求，移除核心流程中的圆柱硬编码，同时保持现有物理 baseline 不变。完成后再用方腔或后台阶验证“新增任务不修改核心 workflow”。
+H2 已完成生成与验证适配器层：核心 generator/validator 只选择适配器，圆柱网格生成和专用检查已集中到 `case_adapters/`；新生成任务同时保存 `CaseSpec`。现有圆柱命令、schema 和物理 baseline 保持兼容。
+
+H3 已完成第二个 `cavity-2d-laminar` 适配器：任务 schema、规则/LLM Planner 输出约束、Case Writer 文件映射、模板生成、静态验证、命令计划和网格证据都通过适配器注册。真实 OpenFOAM 10 验收完成 `blockMesh -> checkMesh -> icoFoam`，20 x 20 网格得到 400 个单元，三个边界非空，结束时刻 `0.5` 的 `U/p` 通过有限数值和规模检查。该结果只证明工程执行可用，尚未进行方腔基准解和网格独立性对照，因此 `physical_validated=false`。
+
+I1 已完成 OpenFOAM 官方教程只读索引和检索接口：从 `controlDict`、初始场及配置文件提取求解器、物理模型、字段、边界类型、网格工具和来源路径；支持 CLI 的结构化过滤、关键词排序、解析警告和可追溯匹配理由。索引保存在本地 Git 忽略目录，明确记录 `scripts_executed=false`，不会读取或执行教程脚本。
+
+I2 已完成 Planner 教程检索接入：已注册圆柱/方腔任务优先走确定性适配器；未注册场景自动检索本地官方教程，将候选、匹配理由和来源路径写入规划状态。Planner 只能引用候选中的 `tutorial_id`，提案由确定性代码固定为 `executable=false`。工作流保存 `case-spec-proposal.json` 和 episode 后以 `proposal_ready` 停止，不调用 Case Writer、Generator 或 OpenFOAM。
+
+I3 已完成首个受控教程 Case Builder：只批准 Foundation OpenFOAM 10 的 `incompressible/simpleFoam/pitzDaily`，把 I2 提案转换为正式 `backward-step-2d` task 和教程来源型 `CaseSpec`。Builder 校验索引与白名单指纹，只复制必要字典，不复制或执行脚本；后台阶适配器负责静态一致性、固定命令计划和稳态结果证据。本机真实执行 `blockMesh -> checkMesh -> simpleFoam` 通过，网格 12225 单元，求解器在第 287 次迭代按教程收敛条件停止，最终 `U/p` 有限且规模正确。该结果仅证明工程执行，`physical_validated=false`。
+
+I4 已完成教程提案的显式批准续跑：`resume --approve-tutorial --runner real` 将 I2 提案、I3 白名单 Builder、静态验证、网格检查和真实求解串成一条可审计链。系统复核原 episode、工作流路径和提案内容，拒绝被篡改的输入及模拟执行；批准、父记录、构建和执行证据写入独立 `resumes/resume-*`，原提案 episode 保持不变。报告区分原提案、用户批准、工程完成和物理未验证。
+
+I5 已完成教程能力数据化和第二官方基准：可安装的 `tutorial_capabilities.json` 声明版本、求解器、物理模型、adapter、字段、网格工具、文件白名单和冻结 task，通用 Builder 不再包含按教程 ID 分支。新增 OpenFOAM 10 `incompressible/icoFoam/cavity/cavity`，只复制批准字典并受控展开 `$p` 引用，将官方 `timeStep` 写出控制映射为 task 的 `runTime` 语义。自然语言提案经同一 `resume` 入口真实完成 `blockMesh -> checkMesh -> icoFoam`，400 个单元运行至 `t=0.5`，`U/p` 结果证据通过；原提案、两次失败续跑和最终成功续跑均保留。后台阶回归保持通过，两教程覆盖 `simpleFoam`/RANS/稳态与 `icoFoam`/层流/瞬态。两者仍是已审查能力，不代表支持任意教程，且 `physical_validated=false`。
+
+下一步进入 J1：统一网格来源协议，把模板生成、教程 `blockMesh` 和已有 `polyMesh` 描述成独立 mesh capability，并让 runner 从任务计划生成命令序列；先保持当前三个真实基准结果不变，再为外部 Gmsh 网格预留明确能力缺口。

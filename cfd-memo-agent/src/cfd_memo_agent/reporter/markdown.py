@@ -11,18 +11,33 @@ def _text(value):
 
 def write_report(path: Path, episode: dict) -> None:
     status_names = {"simulated_success": "模拟流程完成", "completed": "命令执行完成",
+                    "proposal_ready": "教程参考提案已生成",
                     "failed": "失败", "blocked": "被阻止", "timeout": "超时",
                     "interrupted": "用户中断", "execution_error": "执行错误"}
+    proposal_only = episode["status"] == "proposal_ready"
+    tutorial_resume = episode.get("tutorial_resume")
+    execution_line = (
+        f"- 执行：未进入（命令请求 runner: {episode['runner_mode']}）"
+        if proposal_only else
+        f"- 执行模式：{episode['runner_mode']}；对比模式：{episode['mode']}"
+    )
+    if proposal_only:
+        physical_line = "- 物理结果：未验证。当前仅形成参考提案，没有生成 case 或运行求解器。"
+    elif episode["runner_mode"] == "real":
+        physical_line = "- 物理结果：未验证。真实命令与场文件检查完成不等于物理准确性已验证。"
+    else:
+        physical_line = "- 物理结果：未验证。模拟日志不代表真实流场计算。"
+    writer_name = ("教程 Builder" if tutorial_resume else "Case Writer")
     lines = [
         "# CFD-Memo 任务报告", "",
         f"- 记录编号：{episode['episode_id']}",
         f"- 状态：{status_names.get(episode['status'], episode['status'])}",
-        f"- 执行模式：{episode['runner_mode']}；对比模式：{episode['mode']}",
+        execution_line,
         f"- 规划模式：{episode['planning']['actual_mode'] or '未完成'}"
         f"（请求 {episode['planning']['requested_provider'] or '未知'}）",
-        f"- Case Writer：{episode.get('case_writing', {}).get('actual_mode') or '未完成'}"
+        f"- {writer_name}：{episode.get('case_writing', {}).get('actual_mode') or '未完成'}"
         f"（状态 {episode.get('case_writing', {}).get('status', '未记录')}）",
-        "- 物理结果：未验证。模拟日志不代表真实流场计算。",
+        physical_line,
         f"- 修正次数：{episode['diagnosis']['correction_count']} / {episode['max_corrections']}",
         f"- 总耗时：{episode['metrics']['elapsed_seconds']:.3f} 秒",
         f"- 停止原因：{_text(episode['stop_reason']['message'])}", "",
@@ -36,6 +51,14 @@ def write_report(path: Path, episode: dict) -> None:
         lines.extend(["", "任务文件：" + _text(source["task_path"])])
     if episode["task"] is None:
         lines.extend(["", "没有通过验证的任务；原始输入与检查记录保存在本次目录。"])
+    if tutorial_resume:
+        lines.extend([
+            "", "## 教程批准链", "",
+            "- 原 episode：" + _text(tutorial_resume["parent_episode_id"]),
+            "- 原工作流：" + _text(tutorial_resume["parent_workflow_path"]),
+            "- 显式批准记录：" + _text(tutorial_resume["approval_path"]),
+            "- 受控构建记录：" + _text(tutorial_resume["build_path"] or "构建未完成"),
+        ])
     planning = episode["planning"]
     if planning["fallback_used"]:
         lines.extend(["", "Planner 已显式回退到规则模式：" + _text(planning["fallback_reason"])])
@@ -43,6 +66,19 @@ def write_report(path: Path, episode: dict) -> None:
         lines.append("- Planner 假设：" + _text(assumption))
     for question in planning["questions"]:
         lines.append("- Planner 待确认：" + _text(question))
+    retrieval = planning.get("tutorial_retrieval")
+    if retrieval and retrieval["status"] == "ready":
+        lines.append(f"- 官方教程候选：{retrieval['candidate_count']} 个；展示 "
+                     f"{len(retrieval['candidates'])} 个。")
+        for tutorial_id in planning.get("tutorial_ids", []):
+            lines.append("- Planner 引用教程：" + _text(tutorial_id))
+    proposal = planning.get("case_spec_proposal")
+    if proposal:
+        if tutorial_resume:
+            lines.append("- CaseSpec 提案：已由用户显式批准，并交给受控教程 Builder。")
+        else:
+            lines.append("- CaseSpec 提案：仅供审核，不可生成或执行。")
+        lines.append("- 建议求解器：" + _text(proposal["solver"]))
     if planning["error"]:
         lines.append("- Planner 错误：" + _text(planning["error"]["message"]))
     case_writing = episode.get("case_writing")
@@ -82,6 +118,14 @@ def write_report(path: Path, episode: dict) -> None:
         if record.get("mesh_evidence"):
             lines.append(f"实际网格单元数：{record['mesh_evidence']['actual_cells']}；本轮网格检查通过。")
         if record.get("result_evidence"):
+            result = record["result_evidence"]
+            if "final_iteration" in result:
+                lines.append(
+                    f"最终迭代：{result['final_iteration']} / 配置上限 "
+                    f"{result['configured_end_iteration']}；"
+                    + ("求解器提前收敛停止。" if result["stopped_before_end"]
+                       else "达到配置迭代上限。")
+                )
             for field, output in record["result_evidence"]["fields"].items():
                 lines.append(f"- 真实场文件 {_text(field)}：{_text(output)}")
             force = record["result_evidence"].get("force_coefficients")

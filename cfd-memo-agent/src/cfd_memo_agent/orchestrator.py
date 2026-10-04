@@ -12,12 +12,22 @@ from cfd_memo_agent.case_writer.agent import (
 )
 from cfd_memo_agent.planner import plan_task
 from cfd_memo_agent.planner.agent import PROMPT_VERSION, PlannerAgent
+from cfd_memo_agent.tutorials import (
+    DEFAULT_INDEX_PATH, TutorialRetriever, build_case_spec_proposal,
+)
 from cfd_memo_agent.reviewer import build_rule_review
 from cfd_memo_agent.reviewer.agent import (
     PROMPT_VERSION as REVIEWER_PROMPT_VERSION, ReviewerAgent,
 )
 
 FALLBACKS = ("stop", "rules")
+
+
+def _mentions_registered_case(description: str) -> bool:
+    lowered = description.lower() if isinstance(description, str) else ""
+    return any(marker in lowered for marker in (
+        "圆柱", "cylinder", "方腔", "顶盖驱动", "lid-driven cavity", "lid driven cavity",
+    ))
 
 
 def _planning_metadata(settings: ModelSettings) -> dict[str, Any]:
@@ -41,6 +51,8 @@ def plan_description(
     client: ModelClient | None = None,
     fallback: str = "stop",
     memory_context: list[dict[str, Any]] | None = None,
+    tutorial_context: dict[str, Any] | None = None,
+    tutorial_index_path=None,
 ) -> dict[str, Any]:
     """Plan one description and return serializable shared state."""
     if fallback not in FALLBACKS:
@@ -48,6 +60,24 @@ def plan_description(
     selected = settings or ModelSettings.from_env()
     memories = memory_context or []
     memory_ids = list(dict.fromkeys(item["experience_id"] for item in memories))
+    supported_task = None
+    rule_error = None
+    try:
+        supported_task = plan_task(description)
+    except (ValueError, ArithmeticError) as exc:
+        rule_error = exc
+    if tutorial_context is None:
+        if supported_task is not None or _mentions_registered_case(description):
+            tutorials = {
+                "status": "not_needed", "query": description,
+                "index_path": str(tutorial_index_path or DEFAULT_INDEX_PATH),
+                "candidate_count": 0, "candidates": [], "error": None,
+            }
+        else:
+            tutorials = TutorialRetriever(
+                tutorial_index_path or DEFAULT_INDEX_PATH).retrieve(description)
+    else:
+        tutorials = tutorial_context
     state: dict[str, Any] = {
         "state_version": 1,
         "status": "failed",
@@ -56,15 +86,31 @@ def plan_description(
         "assumptions": [],
         "questions": [],
         "experience_ids": [],
+        "tutorial_ids": [],
+        "case_spec_proposal": None,
+        "tutorial_retrieval": tutorials,
         "error": None,
         "planning": _planning_metadata(selected),
     }
     if selected.provider == "rules":
-        try:
-            state["task"] = plan_task(description)
-        except (ValueError, ArithmeticError) as exc:
-            state["error"] = {"type": type(exc).__name__, "message": str(exc)}
+        if supported_task is None and tutorials.get("candidates"):
+            proposal = build_case_spec_proposal(description, tutorials)
+            state.update({
+                "status": "reference_proposal", "case_spec_proposal": proposal,
+                "tutorial_ids": proposal["tutorial_ids"],
+                "assumptions": ["当前场景没有生成适配器；仅形成官方教程参考提案。"],
+            })
+            state["planning"]["actual_mode"] = "rules"
+            state["planning"]["prompt_version"] = "rules-v2"
+            state["planning"]["trace"] = {
+                "provider": "rules", "model": None, "role": "planner",
+                "prompt_version": "rules-v2", "status": "completed", "usage": None,
+            }
             return state
+        if supported_task is None:
+            state["error"] = {"type": type(rule_error).__name__, "message": str(rule_error)}
+            return state
+        state["task"] = supported_task
         state["status"] = "ready"
         state["experience_ids"] = memory_ids
         if memory_ids:
@@ -79,7 +125,7 @@ def plan_description(
     try:
         selected_client = client or create_model_client(selected)
         decision = PlannerAgent(selected_client).plan(
-            description, memory_context=memories,
+            description, memory_context=memories, tutorial_context=tutorials,
         )
     except (ModelError, ValueError, ArithmeticError) as exc:
         state["error"] = {"type": type(exc).__name__, "message": str(exc)}
@@ -91,14 +137,30 @@ def plan_description(
             })
         if fallback != "rules":
             return state
-        try:
-            state["task"] = plan_task(description)
-        except (ValueError, ArithmeticError) as fallback_exc:
+        if supported_task is None and tutorials.get("candidates"):
+            proposal = build_case_spec_proposal(description, tutorials)
+            state.update({
+                "status": "reference_proposal", "case_spec_proposal": proposal,
+                "tutorial_ids": proposal["tutorial_ids"],
+                "assumptions": ["模型失败后使用确定性教程检索提案；不会生成 case。"],
+                "error": None,
+            })
+            state["planning"].update({
+                "actual_mode": "rules_fallback", "fallback_used": True,
+                "fallback_reason": str(exc),
+                "prompt_version": "rules-v2",
+                "trace": {"provider": "rules", "model": None, "role": "planner",
+                          "prompt_version": "rules-v2", "status": "completed", "usage": None},
+            })
+            return state
+        if supported_task is None:
+            fallback_exc = rule_error
             state["error"] = {
                 "type": type(fallback_exc).__name__,
                 "message": f"模型规划失败：{exc}；规则回退也失败：{fallback_exc}",
             }
             return state
+        state["task"] = supported_task
         state["status"] = "ready"
         state["experience_ids"] = memory_ids
         if memory_ids:
@@ -121,6 +183,8 @@ def plan_description(
         "assumptions": decision.assumptions,
         "questions": decision.questions,
         "experience_ids": decision.experience_ids,
+        "tutorial_ids": decision.tutorial_ids,
+        "case_spec_proposal": decision.case_spec_proposal,
     })
     state["planning"].update({"actual_mode": selected.provider, "trace": decision.trace})
     return state
@@ -134,6 +198,11 @@ def task_file_planning_state() -> dict[str, Any]:
         "fallback_reason": None, "model": None, "prompt_version": None,
         "trace": None, "assumptions": [], "questions": [], "error": None,
         "experience_ids": [],
+        "tutorial_ids": [], "case_spec_proposal": None,
+        "tutorial_retrieval": {
+            "status": "not_applicable", "query": None, "index_path": None,
+            "candidate_count": 0, "candidates": [], "error": None,
+        },
     }
 
 
@@ -281,6 +350,9 @@ def planning_record(state: dict[str, Any]) -> dict[str, Any]:
         "status": state["status"], **state["planning"],
         "assumptions": state["assumptions"], "questions": state["questions"],
         "experience_ids": state["experience_ids"],
+        "tutorial_ids": state["tutorial_ids"],
+        "case_spec_proposal": state["case_spec_proposal"],
+        "tutorial_retrieval": state["tutorial_retrieval"],
         "error": state["error"],
     }
 

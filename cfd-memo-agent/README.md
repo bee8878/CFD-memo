@@ -37,6 +37,12 @@ available only for explicit simulated tests.
 或其他脚本，只按能力注册表调用 `blockMesh`（需要时）、`checkMesh` 和求解器。
 每次真实执行仍发生在独立 attempt 副本中，原件和导入工作副本保持不变。
 
+H2 已把生成 case 的核心入口改成适配器调度。`generator.generate_case()` 和
+`validator.validate_case()` 不再直接实现圆柱规则，而是选择 `cylinder-2d-laminar-v1`
+适配器；圆柱网格写入和专用检查集中在 `case_adapters/`。每个新生成目录同时保存
+`task.json` 和通用的 `case-spec.json`。新增场景仍须提供经过测试的适配器，但不再
+修改核心 generator、validator 或 workflow。
+
 ## D1：统一模型接口
 
 D1 已建立统一的结构化模型调用接口，默认仍使用现有规则 planner，不会自动发起
@@ -403,6 +409,128 @@ result = run_workflow("做 Re=100 的二维圆柱绕流",
 .\.venv\Scripts\python.exe -m pytest tests/test_workflow.py -q
 .\.venv\Scripts\python.exe -m pytest tests -q
 ~~~
+
+## H3：第二个生成式场景
+
+`cavity-2d` 是第二个注册适配器，基于 OpenFOAM 10 官方 lid-driven cavity
+拓扑，使用 `icoFoam`、单块 `blockMesh` 和 `movingWall/fixedWalls/frontAndBack`
+边界。它与圆柱共用 planner、Case Writer、generator、validator 和 runner 入口；
+场景特有的生成、静态检查和网格证据位于 `case_adapters/`。
+
+~~~powershell
+.\.venv\Scripts\python.exe -m cfd_memo_agent.cli plan "做 Re=100 的二维顶盖驱动方腔"
+.\.venv\Scripts\python.exe -m cfd_memo_agent.cli generate --task examples/task.cavity-2d.json
+.\.venv\Scripts\python.exe -m cfd_memo_agent.cli run --run "cases/runs/运行目录" --runner real
+~~~
+
+真实验收已完成 `blockMesh -> checkMesh -> icoFoam`：20 x 20 网格得到 400 个
+单元，三个边界非空，结束时刻 `0.5` 的 `U/p` 可读取且数值有限。
+这证明第二场景可经同一入口执行，不表示方腔结果已经过网格独立性或公开基准对照；
+因此该场景仍保持 `physical_validated=false`。
+
+## I1：OpenFOAM 官方教程检索
+
+教程索引器只读取本机 OpenFOAM 字典文件，不读取或执行 `Allrun`、`Allclean`
+等脚本。Windows 默认通过只读 WSL UNC 路径扫描 Ubuntu-22.04 中的
+Foundation OpenFOAM 10，索引保存到 Git 忽略的本地目录：
+
+~~~powershell
+.\.venv\Scripts\python.exe -m cfd_memo_agent.cli tutorials index
+.\.venv\Scripts\python.exe -m cfd_memo_agent.cli tutorials search `
+  --query "顶盖驱动方腔" --solver icoFoam --field U --field p --mesh-tool blockMesh
+~~~
+
+可使用 `--root` 索引其他只读教程副本，使用 `--force` 原子替换已有索引。
+检索支持 `--solver`、`--physics-model`、重复的 `--field`、重复的
+`--boundary-type`、`--mesh-tool` 和 `--limit`。结果包含官方 case 来源路径、
+匹配理由和解析警告。当前 I1 只提供可追溯检索，尚未让 Planner 自动采用教程配置。
+
+## I2：Planner 自动引用教程
+
+自然语言不属于已注册的圆柱或方腔场景时，Orchestrator 会读取本地教程索引，
+把最多五个候选作为 `tutorial_context` 交给 Planner。已注册场景仍优先使用适配器，
+不会被相似教程覆盖；参数非法的已注册场景仍按错误处理。
+
+~~~powershell
+python -m cfd_memo_agent.cli plan "做一个二维后台阶流动" --details
+python -m cfd_memo_agent.cli run "做一个二维后台阶流动" --runner simulated
+~~~
+
+未注册场景只会得到 `reference_proposal`：工作流保存 `planning.json`、
+`case-spec-proposal.json`、`episode.json` 和中文报告，然后以 `proposal_ready`
+停止。提案固定为 `executable=false`，模型只能引用实际检索到的 `tutorial_id`，
+不能创建 case、调用 Generator 或启动 OpenFOAM。可用 `--tutorial-index` 指向
+另一个本地索引。当前提案用于后续适配器设计，不是可运行配置。
+
+## I3：受控教程 Case Builder
+
+I3 只批准 Foundation OpenFOAM 10 的 `incompressible/simpleFoam/pitzDaily`。
+先用 I2 保存的 `case-spec-proposal.json` 构建独立工作副本，再显式执行：
+
+~~~powershell
+.\.venv\Scripts\python.exe -m cfd_memo_agent.cli tutorials build `
+  --proposal "cases\runs\某次I2任务\case-spec-proposal.json"
+.\.venv\Scripts\python.exe -m cfd_memo_agent.cli run `
+  --run "cases\runs\tutorial-..." --runner real --timeout 300
+~~~
+
+Builder 验证提案、教程 ID、OpenFOAM 版本、索引能力和白名单指纹，只复制
+`U/p/k/epsilon/nut`、物性、RANS 模型、网格及求解控制字典。`Allrun` 和其他脚本
+不会复制或执行；来源教程保持只读。生成目录保存正式 `task.json`、教程来源型
+`case-spec.json`、提案、来源清单和静态验证结果。
+
+后台阶适配器固定使用 `simpleFoam`、RAS/kEpsilon 和 pitzDaily 边界，runner 仍只按
+注册计划执行 `blockMesh -> checkMesh -> simpleFoam`。本机真实验收得到 12225 个单元，
+`checkMesh` 通过；稳态求解在第 287 次迭代按教程条件提前停止，最后 `U/p` 可读取、
+数值有限且长度与网格一致。该结果证明工程链路可用，`physical_validated` 仍为 false。
+当前功能不是任意教程生成器，其他教程或参数必须先增加审查过的能力描述与测试。
+
+## I4：显式批准并续跑教程提案
+
+I2 产生的 `proposal_ready` 工作流不会自动执行。审核其
+`case-spec-proposal.json` 后，可用独立命令继续：
+
+```powershell
+python -m cfd_memo_agent.cli resume `
+  --workflow "cases\runs\workflow-..." `
+  --approve-tutorial `
+  --runner real `
+  --timeout 300
+```
+
+`--approve-tutorial` 是必需的人为确认。I4 会复核原 episode 与保存的提案是否一致，
+调用白名单 Builder，再执行 `blockMesh -> checkMesh -> simpleFoam`。原 I2 目录不被改写；
+批准、构建、环境、网格、日志和场文件证据保存在原工作流的
+`resumes/resume-*/` 子目录。当前不接受模拟 runner，工程完成仍保持
+`physical_validated=false`。
+
+## I5：数据化教程能力与第二基准
+
+教程白名单不再写死在 Builder 中。可安装的数据文件
+`src/cfd_memo_agent/tutorial_capabilities.json` 统一声明教程 ID、OpenFOAM
+版本、求解器、物理模型、adapter、必需字段、网格工具、允许复制的文件及冻结任务。
+查看当前能力：
+
+```powershell
+python -m cfd_memo_agent.cli capabilities
+```
+
+当前批准两个官方教程：`simpleFoam/pitzDaily` 和 `icoFoam/cavity/cavity`。
+下面的未注册表述会先形成不可执行提案，再经人工批准进入同一个 Builder/runner：
+
+```powershell
+python -m cfd_memo_agent.cli run "复现 icoFoam movingWall 基准" `
+  --runner simulated
+python -m cfd_memo_agent.cli resume `
+  --workflow "cases\runs\workflow-..." `
+  --approve-tutorial --runner real --timeout 300
+```
+
+方腔 Builder 只复制七个批准字典，并将官方 `$p` 字典引用展开为静态可审查内容；
+同时把 `writeControl timeStep` 显式映射为本项目 task 所定义的 `runTime` 语义。
+真实验收得到 400 个单元，运行到 `t=0.5`，最终 `U/p` 证据通过。
+两种教程共享 CLI、Builder、validator、runner、episode 和报告入口，但各自仍需要经过
+审查的 adapter；这不是任意教程自动执行器，且 `physical_validated=false`。
 
 ## JSON 格式检查
 

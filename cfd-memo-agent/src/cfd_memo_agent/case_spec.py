@@ -26,8 +26,8 @@ class CaseSpec:
     def __post_init__(self) -> None:
         if self.schema_version != 1:
             raise ValueError("CaseSpec schema_version 必须为 1")
-        if self.source_type not in {"generated", "imported"}:
-            raise ValueError("CaseSpec source_type 必须为 generated 或 imported")
+        if self.source_type not in {"generated", "imported", "tutorial"}:
+            raise ValueError("CaseSpec source_type 必须为 generated、imported 或 tutorial")
         if self.dimension not in {"2D", "3D", "unknown"}:
             raise ValueError("CaseSpec dimension 必须为 2D、3D 或 unknown")
         if self.mesh_source not in {"blockMesh", "polyMesh", "unknown"}:
@@ -51,15 +51,22 @@ class CaseSpec:
         return cls(**data)
 
     @classmethod
-    def from_task(cls, task: dict[str, Any]) -> "CaseSpec":
+    def from_task(
+        cls, task: dict[str, Any], *, source_type: str = "generated",
+        source_path: str | None = None,
+    ) -> "CaseSpec":
         capability = get_capability(task["solver"])
         mesh = task.get("mesh", {})
         generator = mesh.get("generator", "blockMesh")
-        mesh_source = "blockMesh" if generator in {"blockMesh", "manual-template"} else "unknown"
+        mesh_source = (
+            "blockMesh"
+            if generator in {"blockMesh", "manual-template", "tutorial-template"}
+            else "unknown"
+        )
         return cls(
             schema_version=1,
             task_id=task["task_id"],
-            source_type="generated",
+            source_type=source_type,
             case_type=task["case_type"],
             solver=task["solver"],
             physics_model=task["physics"]["flow_model"],
@@ -73,6 +80,7 @@ class CaseSpec:
                 "delta_t": float(task["time_control"]["delta_t"]),
                 "write_interval": float(task["time_control"]["write_interval"]),
             },
+            source_path=source_path,
         )
 
 

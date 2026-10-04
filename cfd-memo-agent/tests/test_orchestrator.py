@@ -7,6 +7,7 @@ from cfd_memo_agent.orchestrator import plan_description
 from cfd_memo_agent.case_writer import build_case_intent
 from cfd_memo_agent.planner import DEFAULT_CYLINDER_TASK
 from cfd_memo_agent.planner.agent import PLANNER_OUTPUT_SCHEMA
+from cfd_memo_agent.tutorials import build_case_spec_proposal
 from cfd_memo_agent.memory.episodes import episode_validator
 from cfd_memo_agent.workflow import run_workflow
 
@@ -15,13 +16,16 @@ OPENAI = ModelSettings(provider="openai", model="test-model")
 DEEPSEEK = ModelSettings(provider="deepseek", model="deepseek-flash")
 
 
-def output(*, task=None, status="ready", assumptions=None, questions=None):
+def output(*, task=None, status="ready", assumptions=None, questions=None,
+           tutorial_ids=None, proposal=None):
     return {
         "status": status,
         "task": deepcopy(DEFAULT_CYLINDER_TASK) if task is None and status == "ready" else task,
         "assumptions": assumptions or [],
         "questions": questions or [],
         "experience_ids": [],
+        "tutorial_ids": tutorial_ids or [],
+        "case_spec_proposal": proposal,
     }
 
 
@@ -77,7 +81,7 @@ def test_orchestrator_records_deepseek_as_the_actual_provider():
     assert state["status"] == "ready"
     assert state["planning"]["requested_provider"] == "deepseek"
     assert state["planning"]["actual_mode"] == "deepseek"
-    assert state["planning"]["prompt_version"] == "planner-v1"
+    assert state["planning"]["prompt_version"] == "planner-v2"
 
 
 def test_model_can_request_clarification_without_creating_task():
@@ -153,6 +157,83 @@ def test_planner_schema_locks_currently_supported_template_choices():
     assert properties["mesh"]["properties"]["generator"] == {
         "const": "manual-template",
     }
+
+
+def tutorial_context():
+    return {
+        "status": "ready", "query": "做二维后台阶流动", "index_path": "index.json",
+        "candidate_count": 1, "error": None,
+        "candidates": [{
+            "tutorial_id": "incompressible/simpleFoam/RAS/pitzDaily",
+            "case_path": "/opt/openfoam10/tutorials/incompressible/simpleFoam/RAS/pitzDaily",
+            "solver": "simpleFoam", "physics_model": "incompressible_rans",
+            "fields": ["U", "p"],
+            "boundaries": {"inlet": ["fixedValue"], "outlet": ["zeroGradient"]},
+            "boundary_types": ["fixedValue", "zeroGradient"],
+            "mesh_tools": ["blockMesh"],
+            "config_files": ["system/controlDict", "system/blockMeshDict"],
+            "warnings": [], "score": 20, "match_reasons": ["alias:后台阶"],
+        }],
+    }
+
+
+def test_rules_planner_creates_non_executable_tutorial_proposal():
+    context = tutorial_context()
+    state = plan_description("做二维后台阶流动", tutorial_context=context)
+
+    assert state["status"] == "reference_proposal"
+    assert state["task"] is None
+    assert state["tutorial_ids"] == [context["candidates"][0]["tutorial_id"]]
+    assert state["case_spec_proposal"]["executable"] is False
+    assert state["case_spec_proposal"]["solver"] == "simpleFoam"
+
+
+def test_model_tutorial_proposal_is_bounded_and_cannot_forge_source():
+    context = tutorial_context()
+    proposal = build_case_spec_proposal("做二维后台阶流动", context)
+    accepted = plan_description(
+        "做二维后台阶流动", settings=OPENAI, tutorial_context=context,
+        client=FakeModelClient([output(
+            status="reference_proposal", task=None,
+            tutorial_ids=proposal["tutorial_ids"], proposal=proposal,
+        )]),
+    )
+    assert accepted["status"] == "reference_proposal"
+
+    forged = deepcopy(proposal)
+    forged["tutorial_ids"] = ["invented/tutorial"]
+    stopped = plan_description(
+        "做二维后台阶流动", settings=OPENAI, tutorial_context=context,
+        client=FakeModelClient([output(
+            status="reference_proposal", task=None,
+            tutorial_ids=["invented/tutorial"], proposal=forged,
+        )]),
+    )
+    assert stopped["status"] == "failed"
+    assert stopped["task"] is None
+
+
+def test_workflow_saves_tutorial_proposal_without_generating_case(tmp_path, monkeypatch):
+    context = tutorial_context()
+    monkeypatch.setattr(
+        "cfd_memo_agent.orchestrator.TutorialRetriever.retrieve",
+        lambda self, query: context,
+    )
+    result = run_workflow(
+        "做二维后台阶流动", mode="simulated", runs_dir=tmp_path,
+        model_settings=ModelSettings(provider="rules", model=None),
+    )
+
+    root = tmp_path / result["episode_id"]
+    assert result["status"] == "proposal_ready"
+    assert result["stop_reason"]["code"] == "REFERENCE_PROPOSAL_READY"
+    assert result["rounds"] == [] and result["task"] is None
+    assert (root / "case-spec-proposal.json").is_file()
+    assert not (root / "reference").exists()
+    report = (root / "report.md").read_text(encoding="utf-8")
+    assert "执行：未进入" in report
+    assert "没有生成 case 或运行求解器" in report
+    episode_validator().validate(result)
 
 
 def test_workflow_records_model_planning_without_exposing_credentials(tmp_path):

@@ -49,6 +49,9 @@ cfd-memo-agent/cases/runs/*
 # Local learned memory and archived episodes
 cfd-memo-agent/cases/memory/
 
+# Local read-only index of the installed OpenFOAM tutorials
+cfd-memo-agent/cases/tutorial-index/
+
 # Agent/runtime local state
 .codex/cache/
 .agents/cache/

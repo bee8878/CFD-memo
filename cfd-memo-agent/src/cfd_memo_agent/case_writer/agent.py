@@ -6,25 +6,19 @@ from hashlib import sha256
 import json
 from typing import Any
 
+from cfd_memo_agent.case_adapters import CYLINDER_FILE_BINDINGS, get_case_adapter
 from cfd_memo_agent.models import ModelClient, ModelOutputError, ModelRequest
 from cfd_memo_agent.validator import validate_task
 
 PROMPT_VERSION = "case-writer-v1"
 
-FILE_BINDINGS = {
-    "inlet_velocity": "0/U",
-    "pressure_boundaries": "0/p",
-    "kinematic_viscosity": "constant/physicalProperties",
-    "time_control": "system/controlDict",
-    "mesh_geometry": "system/blockMeshDict",
-    "geometry_metadata": "constant/geometry.json",
-}
+FILE_BINDINGS = dict(CYLINDER_FILE_BINDINGS)
 
 INSTRUCTIONS = """你是 CFD-Memo 的 Case Writer Agent。输入是已经通过确定性验证的 CFD task。
 你的职责是确认当前 MVP 应使用的模板、求解器和参数到 OpenFOAM 文件的映射。
 
 必须遵守：
-1. 只允许 cylinder-2d、icoFoam 和给定 schema 中固定的文件映射。
+1. 只允许已注册适配器、其求解器和给定 schema 中固定的文件映射。
 2. 不得输出文件正文、路径外的文件、shell 命令或求解结果。
 3. task 可安全映射时 status=ready、intent 非空、blockers 为空。
 4. 发现无法安全表达的矛盾时 status=blocked、intent=null，并说明 blockers。
@@ -47,11 +41,12 @@ def build_case_intent(task: dict[str, Any]) -> dict[str, Any]:
     report = validate_task(task)
     if not report["task_valid"]:
         raise ValueError("Case Writer 只能接收已通过验证的 task")
+    adapter = get_case_adapter(task)
     return {
-        "template_id": "cylinder-2d",
-        "solver": "icoFoam",
+        "template_id": adapter.template_id,
+        "solver": adapter.solver,
         "task_fingerprint": _fingerprint(task),
-        "file_bindings": dict(FILE_BINDINGS),
+        "file_bindings": adapter.file_bindings,
     }
 
 

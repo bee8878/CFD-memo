@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "capabilities": [
+    {
+      "capability_id": "openfoam10-pitzdaily-v1",
+      "tutorial_id": "incompressible/simpleFoam/pitzDaily",
+      "openfoam_version": "10",
+      "solver": "simpleFoam",
+      "physics_model": "incompressible_rans",
+      "adapter_id": "backward-step-2d-rans-pitzdaily-v1",
+      "required_fields": ["U", "p", "k", "epsilon", "nut"],
+      "mesh_tools": ["blockMesh"],
+      "whitelist": [
+        "0/U", "0/p", "0/k", "0/epsilon", "0/nut",
+        "constant/momentumTransport", "constant/physicalProperties",
+        "system/blockMeshDict", "system/controlDict", "system/fvSchemes",
+        "system/fvSolution"
+      ],
+      "task_template": {
+        "task_id": "task-backward-step-2d-pitzdaily",
+        "case_type": "backward-step-2d",
+        "solver": "simpleFoam",
+        "geometry": {
+          "dimension": "2D", "reference_length": 0.0254,
+          "domain_length": 0.3106, "inlet_height": 0.0254
+        },
+        "physics": {
+          "flow_model": "incompressible_rans", "reynolds_number": 25400,
+          "inlet_velocity": 10.0, "kinematic_viscosity": 0.00001
+        },
+        "boundary_conditions": {
+          "inlet": {"U": "fixedValue", "p": "zeroGradient"},
+          "outlet": {"U": "zeroGradient", "p": "fixedValue"},
+          "upperWall": {"U": "noSlip", "p": "zeroGradient"},
+          "lowerWall": {"U": "noSlip", "p": "zeroGradient"},
+          "frontAndBack": {"U": "empty", "p": "empty"}
+        },
+        "mesh": {"generator": "tutorial-template", "target_cells": 12225},
+        "time_control": {
+          "start_time": 0, "end_time": 2000, "delta_t": 1,
+          "write_interval": 100
+        },
+        "convergence": {"residual_target": 0.00001, "max_corrections": 0},
+        "tutorial_reference": {
+          "tutorial_id": "incompressible/simpleFoam/pitzDaily",
+          "openfoam_version": "10", "confirmed": true
+        }
+      }
+    },
+    {
+      "capability_id": "openfoam10-icofoam-cavity-v1",
+      "tutorial_id": "incompressible/icoFoam/cavity/cavity",
+      "openfoam_version": "10",
+      "solver": "icoFoam",
+      "physics_model": "incompressible_laminar",
+      "adapter_id": "cavity-2d-laminar-v1",
+      "required_fields": ["U", "p"],
+      "mesh_tools": ["blockMesh"],
+      "whitelist": [
+        "0/U", "0/p", "constant/physicalProperties",
+        "system/blockMeshDict", "system/controlDict", "system/fvSchemes",
+        "system/fvSolution"
+      ],
+      "task_template": {
+        "task_id": "task-cavity-2d-openfoam10",
+        "case_type": "cavity-2d",
+        "solver": "icoFoam",
+        "geometry": {
+          "dimension": "2D", "width": 0.1, "height": 0.1, "depth": 0.01
+        },
+        "physics": {
+          "flow_model": "incompressible_laminar", "reynolds_number": 10,
+          "lid_velocity": 1.0, "kinematic_viscosity": 0.01
+        },
+        "boundary_conditions": {
+          "movingWall": {"U": "fixedValue", "p": "zeroGradient"},
+          "fixedWalls": {"U": "noSlip", "p": "zeroGradient"},
+          "frontAndBack": {"U": "empty", "p": "empty"}
+        },
+        "mesh": {"generator": "tutorial-template", "cells_x": 20, "cells_y": 20},
+        "time_control": {
+          "start_time": 0, "end_time": 0.5, "delta_t": 0.005,
+          "write_interval": 0.1
+        },
+        "convergence": {"residual_target": 0.000001, "max_corrections": 0},
+        "tutorial_reference": {
+          "tutorial_id": "incompressible/icoFoam/cavity/cavity",
+          "openfoam_version": "10", "confirmed": true
+        }
+      }
+    }
+  ]
+}

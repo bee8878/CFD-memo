@@ -12,6 +12,7 @@ import subprocess
 import time
 from uuid import uuid4
 
+from cfd_memo_agent.case_adapters import get_case_adapter
 from cfd_memo_agent.diagnoser import diagnose_log, diagnose_validation
 from cfd_memo_agent.diagnoser.logs import finding
 from cfd_memo_agent.validator import validate_case
@@ -81,7 +82,7 @@ def run_case(run_dir: Path | str, *, mode: str, scenario: str | None = None,
     root = Path(run_dir).absolute()
     if not root.is_dir():
         raise ValueError(f"运行目录不存在：{root}")
-    if (root / "case-spec.json").is_file() and not (root / "task.json").is_file():
+    if (root / "import.json").is_file() and (root / "case-spec.json").is_file():
         if mode != "real":
             raise ValueError("导入 case 只支持真实运行；不会用模拟日志冒充结果")
         from .imported import run_imported_case
@@ -106,6 +107,7 @@ def run_case(run_dir: Path | str, *, mode: str, scenario: str | None = None,
         _save(attempt / "execution.json", report)
         return report
 
+    adapter = None
     try:
         task = read_json(root / "task.json")
     except (OSError, UnicodeError, ValueError, RecursionError) as exc:
@@ -113,6 +115,8 @@ def run_case(run_dir: Path | str, *, mode: str, scenario: str | None = None,
         validation["errors"].append(issue("TASK_READ", f"无法读取任务：{exc}", "task.json"))
     else:
         validation = validate_case(task, root / "case")
+        if validation["task_valid"]:
+            adapter = get_case_adapter(task)
     _save(attempt / "validation.json", validation)
     report["validation"] = validation
     validation_diagnosis = diagnose_validation(validation)
@@ -122,9 +126,10 @@ def run_case(run_dir: Path | str, *, mode: str, scenario: str | None = None,
         return finish()
 
     executables = {}
+    commands = adapter.command_plan(task) if adapter is not None else COMMANDS
     if mode == "real":
         try:
-            environment = discover()
+            environment = discover() if commands == COMMANDS else discover(commands)
             report["environment"] = environment
             executables = environment["executables"]
         except (OSError, subprocess.TimeoutExpired) as exc:
@@ -160,7 +165,7 @@ def run_case(run_dir: Path | str, *, mode: str, scenario: str | None = None,
                                 ignore=shutil.ignore_patterns("polyMesh"))
             report["case_path"] = str(case)
             initial_hash = fingerprint(case)
-            for stage in COMMANDS:
+            for stage in commands:
                 log_path = attempt / f"{stage}.log"
                 command = [executables[stage], "-case", str(case)]
                 try:
@@ -193,13 +198,17 @@ def run_case(run_dir: Path | str, *, mode: str, scenario: str | None = None,
                     if fingerprint(case) != initial_hash:
                         raise ValueError("运行期间配置发生变化")
                     if stage == "checkMesh":
-                        report["mesh_evidence"] = mesh_evidence(case, task)
+                        report["mesh_evidence"] = adapter.collect_mesh_evidence(
+                            case, task, mesh_evidence)
                         _save(attempt / "mesh-evidence.json", report["mesh_evidence"])
-                    if stage == "icoFoam":
-                        report["result_evidence"] = field_evidence(case, task, report["mesh_evidence"])
-                        force = force_coefficient_evidence(case, task)
-                        report["result_evidence"]["force_coefficients"] = force
-                        _save(attempt / "force-evidence.json", force)
+                    if stage == task["solver"]:
+                        report["result_evidence"] = adapter.collect_field_evidence(
+                            case, task, report["mesh_evidence"], field_evidence)
+                        force = adapter.collect_physical_evidence(
+                            case, task, force_coefficient_evidence)
+                        if force is not None:
+                            report["result_evidence"]["force_coefficients"] = force
+                            _save(attempt / "force-evidence.json", force)
                         _save(attempt / "result-evidence.json", report["result_evidence"])
                 except (OSError, ValueError, TypeError, KeyError) as exc:
                     report["status"] = "failed"

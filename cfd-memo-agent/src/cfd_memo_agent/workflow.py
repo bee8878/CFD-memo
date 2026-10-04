@@ -57,7 +57,7 @@ def run_workflow(description=None, *, task_path=None, mode, runs_dir=None,
                  max_corrections=None, timeout=300, fault=None,
                  planner_fallback="stop", model_settings: ModelSettings | None = None,
                  model_client: ModelClient | None = None, memory_mode="no_memory",
-                 memory_dir=None, memory_learning=True) -> dict:
+                 memory_dir=None, memory_learning=True, tutorial_index_path=None) -> dict:
     """Run C1-C4, optionally repair supported fields, and persist an episode."""
     _options(description, task_path, mode, max_corrections, timeout, fault,
              planner_fallback, memory_mode, memory_dir, memory_learning)
@@ -87,6 +87,11 @@ def run_workflow(description=None, *, task_path=None, mode, runs_dir=None,
             "fallback_used": False, "fallback_reason": None, "model": None,
             "prompt_version": None, "trace": None, "assumptions": [],
             "questions": [], "experience_ids": [], "error": None,
+            "tutorial_ids": [], "case_spec_proposal": None,
+            "tutorial_retrieval": {
+                "status": "pending", "query": description, "index_path": None,
+                "candidate_count": 0, "candidates": [], "error": None,
+            },
         },
         "case_writing": {
             "status": "pending", "requested_provider": None, "actual_mode": None,
@@ -192,9 +197,26 @@ def run_workflow(description=None, *, task_path=None, mode, runs_dir=None,
                 description, settings=selected_settings, client=model_client,
                 fallback=planner_fallback,
                 memory_context=(manager.context(planning_memories) if manager is not None else []),
+                tutorial_index_path=tutorial_index_path,
             )
             episode["planning"] = planning_record(state)
             write_record(root / "planning.json", state)
+            if state["status"] == "reference_proposal":
+                write_record(root / "input.json", source)
+                write_record(root / "case-spec-proposal.json", state["case_spec_proposal"])
+                problem = issue(
+                    "TUTORIAL_PROPOSAL_READY",
+                    "已找到官方教程参考并形成非执行 CaseSpec 提案；当前没有生成适配器。",
+                    "planner.case_spec_proposal",
+                )
+                validation = new_report()
+                validation["errors"] = [problem]
+                write_record(root / "task-validation.json", validation)
+                episode["findings"] = diagnose_validation(validation)["findings"]
+                return finish(
+                    "proposal_ready", "REFERENCE_PROPOSAL_READY",
+                    "请审核教程提案并实现或批准相应适配器；本次没有生成或运行 case。",
+                )
             if state["status"] != "ready":
                 write_record(root / "input.json", source)
                 code = (

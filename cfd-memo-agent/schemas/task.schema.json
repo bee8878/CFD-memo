@@ -6,35 +6,40 @@
   "required": ["task_id", "case_type", "solver", "geometry", "physics", "boundary_conditions", "time_control"],
   "properties": {
     "task_id": { "type": "string" },
-    "case_type": { "const": "cylinder-2d" },
-    "solver": { "enum": ["icoFoam", "pimpleFoam"] },
+    "case_type": { "enum": ["cylinder-2d", "cavity-2d", "backward-step-2d"] },
+    "solver": { "enum": ["icoFoam", "pimpleFoam", "simpleFoam"] },
     "geometry": {
       "type": "object",
-      "required": ["dimension", "cylinder_diameter", "domain_length", "domain_height"],
+      "required": ["dimension"],
       "properties": {
         "dimension": { "const": "2D" },
         "cylinder_diameter": { "type": "number", "exclusiveMinimum": 0 },
         "domain_length": { "type": "number", "exclusiveMinimum": 0 },
         "domain_height": { "type": "number", "exclusiveMinimum": 0 },
         "upstream_length": { "type": "number", "exclusiveMinimum": 0 },
-        "downstream_length": { "type": "number", "exclusiveMinimum": 0 }
+        "downstream_length": { "type": "number", "exclusiveMinimum": 0 },
+        "width": { "type": "number", "exclusiveMinimum": 0 },
+        "height": { "type": "number", "exclusiveMinimum": 0 },
+        "depth": { "type": "number", "exclusiveMinimum": 0 }
+        ,"reference_length": { "type": "number", "exclusiveMinimum": 0 }
+        ,"inlet_height": { "type": "number", "exclusiveMinimum": 0 }
       },
       "additionalProperties": true
     },
     "physics": {
       "type": "object",
-      "required": ["flow_model", "reynolds_number", "inlet_velocity", "kinematic_viscosity"],
+      "required": ["flow_model", "reynolds_number", "kinematic_viscosity"],
       "properties": {
-        "flow_model": { "const": "incompressible_laminar" },
+        "flow_model": { "enum": ["incompressible_laminar", "incompressible_rans"] },
         "reynolds_number": { "type": "number", "exclusiveMinimum": 0 },
         "inlet_velocity": { "type": "number", "exclusiveMinimum": 0 },
+        "lid_velocity": { "type": "number", "exclusiveMinimum": 0 },
         "kinematic_viscosity": { "type": "number", "exclusiveMinimum": 0 }
       },
       "additionalProperties": false
     },
     "boundary_conditions": {
       "type": "object",
-      "required": ["inlet", "outlet", "cylinder", "top", "bottom", "frontAndBack"],
       "additionalProperties": {
         "type": "object",
         "required": ["U", "p"],
@@ -48,7 +53,7 @@
     "mesh": {
       "type": "object",
       "properties": {
-        "generator": { "enum": ["blockMesh", "snappyHexMesh", "manual-template"] },
+        "generator": { "enum": ["blockMesh", "snappyHexMesh", "manual-template", "tutorial-template"] },
         "target_cells": { "type": "integer", "minimum": 1 },
         "radial_grading": { "type": "number", "minimum": 1 },
         "near_field_radius": { "type": "number", "exclusiveMinimum": 0 },
@@ -57,7 +62,9 @@
         "near_radial_cells": { "type": "integer", "minimum": 4 },
         "far_radial_cells": { "type": "integer", "minimum": 4 },
         "near_radial_grading": { "type": "number", "minimum": 1 },
-        "far_radial_grading": { "type": "number", "minimum": 1 }
+        "far_radial_grading": { "type": "number", "minimum": 1 },
+        "cells_x": { "type": "integer", "minimum": 2 },
+        "cells_y": { "type": "integer", "minimum": 2 }
       },
       "dependentRequired": {
         "near_field_radius": ["angular_cells", "near_radial_cells", "far_radial_cells"],
@@ -88,7 +95,94 @@
         "max_corrections": { "type": "integer", "minimum": 0 }
       },
       "additionalProperties": false
+    },
+    "tutorial_reference": {
+      "type": "object",
+      "required": ["tutorial_id", "openfoam_version", "confirmed", "manifest_sha256"],
+      "properties": {
+        "tutorial_id": {
+          "enum": [
+            "incompressible/simpleFoam/pitzDaily",
+            "incompressible/icoFoam/cavity/cavity"
+          ]
+        },
+        "openfoam_version": { "const": "10" },
+        "confirmed": { "const": true },
+        "manifest_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      },
+      "additionalProperties": false
     }
   },
+  "allOf": [
+    {
+      "if": { "properties": { "case_type": { "const": "cylinder-2d" } } },
+      "then": {
+        "properties": {
+          "geometry": { "required": ["cylinder_diameter", "domain_length", "domain_height"] },
+          "physics": { "required": ["inlet_velocity"] },
+          "boundary_conditions": {
+            "required": ["inlet", "outlet", "cylinder", "top", "bottom", "frontAndBack"]
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "case_type": { "const": "cavity-2d" } } },
+      "then": {
+        "properties": {
+          "geometry": { "required": ["width", "height", "depth"] },
+          "physics": { "required": ["lid_velocity"] },
+          "boundary_conditions": {
+            "required": ["movingWall", "fixedWalls", "frontAndBack"]
+          },
+          "mesh": { "required": ["cells_x", "cells_y"] }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "case_type": { "const": "backward-step-2d" } } },
+      "then": {
+        "required": ["tutorial_reference"],
+        "properties": {
+          "solver": { "const": "simpleFoam" },
+          "geometry": { "required": ["reference_length", "domain_length", "inlet_height"] },
+          "physics": {
+            "properties": { "flow_model": { "const": "incompressible_rans" } },
+            "required": ["inlet_velocity"]
+          },
+          "boundary_conditions": {
+            "required": ["inlet", "outlet", "upperWall", "lowerWall", "frontAndBack"]
+          },
+          "mesh": {
+            "properties": { "generator": { "const": "tutorial-template" } },
+            "required": ["generator", "target_cells"]
+          },
+          "tutorial_reference": {
+            "properties": {
+              "tutorial_id": { "const": "incompressible/simpleFoam/pitzDaily" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["tutorial_reference"],
+        "properties": { "case_type": { "const": "cavity-2d" } }
+      },
+      "then": {
+        "properties": {
+          "mesh": {
+            "properties": { "generator": { "const": "tutorial-template" } }
+          },
+          "tutorial_reference": {
+            "properties": {
+              "tutorial_id": { "const": "incompressible/icoFoam/cavity/cavity" }
+            }
+          }
+        }
+      }
+    }
+  ],
   "additionalProperties": false
 }

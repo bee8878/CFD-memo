@@ -8,7 +8,7 @@
     "episode_id": { "type": "string" },
     "task_id": { "type": ["string", "null"] },
     "mode": { "enum": ["no_memory", "simple_cache", "retrieval_only", "cfd_memo"] },
-    "status": { "enum": ["success", "failed", "simulated_success", "simulated_failed", "completed", "blocked", "timeout", "execution_error", "interrupted"] },
+    "status": { "enum": ["success", "failed", "simulated_success", "simulated_failed", "completed", "proposal_ready", "blocked", "timeout", "execution_error", "interrupted"] },
     "case_summary": {
       "type": ["object", "null"],
       "required": ["case_type", "solver", "case_path"],
@@ -70,7 +70,7 @@
                    "fallback_reason", "model", "prompt_version", "trace",
                    "assumptions", "questions", "experience_ids", "error"],
       "properties": {
-        "status": { "enum": ["pending", "ready", "needs_clarification", "failed", "not_applicable"] },
+        "status": { "enum": ["pending", "ready", "reference_proposal", "needs_clarification", "failed", "not_applicable"] },
         "requested_provider": { "type": ["string", "null"] },
         "actual_mode": { "enum": ["rules", "openai", "deepseek", "rules_fallback", "task_file", null] },
         "fallback_used": { "type": "boolean" },
@@ -82,6 +82,31 @@
         "questions": { "type": "array", "items": { "type": "string" } },
         "experience_ids": {
           "type": "array", "uniqueItems": true, "items": { "type": "string" }
+        },
+        "tutorial_ids": {
+          "type": "array", "uniqueItems": true, "items": { "type": "string" }
+        },
+        "case_spec_proposal": { "type": ["object", "null"] },
+        "tutorial_retrieval": {
+          "type": "object",
+          "required": ["status", "query", "index_path", "candidate_count", "candidates", "error"],
+          "properties": {
+            "status": { "enum": ["pending", "not_needed", "not_applicable", "ready", "no_match", "unavailable"] },
+            "query": { "type": ["string", "null"] },
+            "index_path": { "type": ["string", "null"] },
+            "candidate_count": { "type": "integer", "minimum": 0 },
+            "candidates": { "type": "array", "items": { "type": "object" } },
+            "error": {
+              "type": ["object", "null"],
+              "required": ["type", "message"],
+              "properties": {
+                "type": { "type": "string" },
+                "message": { "type": "string" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
         },
         "error": {
           "type": ["object", "null"],
@@ -265,6 +290,19 @@
       },
       "additionalProperties": true
     },
+    "tutorial_resume": {
+      "type": "object",
+      "required": ["parent_episode_id", "parent_workflow_path", "approval_path",
+                   "build_path", "approved"],
+      "properties": {
+        "parent_episode_id": { "type": "string", "minLength": 1 },
+        "parent_workflow_path": { "type": "string", "minLength": 1 },
+        "approval_path": { "type": "string", "minLength": 1 },
+        "build_path": { "type": ["string", "null"] },
+        "approved": { "const": true }
+      },
+      "additionalProperties": false
+    },
     "memory": {
       "type": "object",
       "required": ["store_path", "retrieved_experience_ids", "uses",
@@ -376,7 +414,7 @@
                      "preventions", "metrics", "diagnosis", "planning", "case_writing", "reviews"],
         "properties": {
           "mode": { "const": "no_memory" },
-          "status": { "enum": ["simulated_success", "completed", "failed", "blocked", "timeout", "execution_error", "interrupted"] },
+          "status": { "enum": ["simulated_success", "completed", "proposal_ready", "failed", "blocked", "timeout", "execution_error", "interrupted"] },
           "metrics": { "properties": { "experience_reused": { "const": false } } }
         }
       }
@@ -393,7 +431,7 @@
                      "preventions", "metrics", "diagnosis", "planning", "case_writing", "reviews", "memory"],
         "properties": {
           "mode": { "enum": ["simple_cache", "retrieval_only", "cfd_memo"] },
-          "status": { "enum": ["simulated_success", "completed", "failed", "blocked", "timeout", "execution_error", "interrupted"] }
+          "status": { "enum": ["simulated_success", "completed", "proposal_ready", "failed", "blocked", "timeout", "execution_error", "interrupted"] }
         }
       }
     }
