@@ -15,8 +15,15 @@ from jsonschema import Draft202012Validator
 from cfd_memo_agent.validator.foam import read_json
 
 from .vector import VECTOR_VERSION, cosine, experience_text, reynolds_similarity, task_text
+from .trust import (
+    TRUST_LEVELS, derive_level, file_evidence, strongest_level, verify_result_index,
+)
 
 SCHEMAS = Path(__file__).resolve().parents[3] / "schemas"
+_SCOPE_BY_LEVEL = {
+    "candidate": "candidate", "config_verified": "configuration",
+    "run_verified": "run", "physics_verified": "physics",
+}
 
 
 def _now() -> str:
@@ -65,6 +72,40 @@ class MemoryManager:
             "task_id": None, "retrieved_experience_ids": [], "retrievals": [], "uses": [],
         }
 
+    @staticmethod
+    def _migrate_legacy(record: dict[str, Any]) -> dict[str, Any]:
+        """Make v1 records readable without pretending their unhashed evidence is current."""
+        if record.get("schema_version") != 1:
+            return record
+        migrated = deepcopy(record)
+        migrated["schema_version"] = 2
+        migrated["status"] = "candidate"
+        migrated["verification_scope"] = "candidate"
+        migrated["evidence"] = [{
+            **item, "source_type": "legacy_episode", "runner_mode": "unknown",
+            "derived_level": "candidate", "integrity_verified": False, "artifacts": [],
+        } for item in migrated.get("evidence", [])]
+        migrated["user_control"] = {
+            "state": "active", "approved": False,
+            "note": "旧版记录缺少文件哈希，需从原始 episode 重新提炼。",
+            "updated_at": migrated.get("updated_at", _now()),
+        }
+        return migrated
+
+    def _load_experience(self, path: Path) -> dict[str, Any]:
+        record = self._migrate_legacy(read_json(path))
+        errors = list(_validator("experience.schema.json").iter_errors(record))
+        if errors:
+            raise ValueError(f"损坏的经验记录：{path}: {errors[0].message}")
+        return record
+
+    @staticmethod
+    def _retrievable(record: dict[str, Any]) -> bool:
+        return (
+            record["status"] != "candidate"
+            and record["user_control"]["state"] == "active"
+        )
+
     def start_task(self, task: dict[str, Any]) -> None:
         self.working["task_id"] = task["task_id"]
 
@@ -98,11 +139,8 @@ class MemoryManager:
             return []
         matches: list[dict[str, Any]] = []
         for path in sorted(self.knowledge_dir.glob("*.json")):
-            record = read_json(path)
-            errors = list(_validator("experience.schema.json").iter_errors(record))
-            if errors:
-                raise ValueError(f"损坏的经验记录：{path}: {errors[0].message}")
-            if record["status"] != "verified":
+            record = self._load_experience(path)
+            if not self._retrievable(record):
                 continue
             vector_score = cosine(description, experience_text(record))
             if vector_score <= 0:
@@ -128,12 +166,9 @@ class MemoryManager:
         wanted = set(problem_codes or [])
         matches: list[dict[str, Any]] = []
         for path in sorted(self.knowledge_dir.glob("*.json")):
-            record = read_json(path)
-            errors = list(_validator("experience.schema.json").iter_errors(record))
-            if errors:
-                raise ValueError(f"损坏的经验记录：{path}: {errors[0].message}")
+            record = self._load_experience(path)
             applicability = record["applicability"]
-            if record["status"] != "verified":
+            if not self._retrievable(record):
                 continue
             if any((
                 applicability["case_type"] != task["case_type"],
@@ -174,6 +209,7 @@ class MemoryManager:
             "problem_codes": item["problem_codes"],
             "applicability": item["applicability"],
             "action": item["action"],
+            "trust_level": item["status"],
             "verification_scope": item["verification_scope"],
             "retrieval_score": item.get("retrieval_score"),
         } for item in records]
@@ -187,8 +223,58 @@ class MemoryManager:
             if use not in self.working["uses"]:
                 self.working["uses"].append(use)
 
+    @staticmethod
+    def _evidence_from_round(episode: dict[str, Any], correction: dict[str, Any],
+                             target: dict[str, Any] | None) -> tuple[dict[str, Any], str]:
+        artifacts: list[dict[str, Any]] = []
+        config_valid = False
+        result_index = None
+        if target is not None:
+            validation_path = target.get("validation_path")
+            execution_path = target.get("execution_path")
+            round_root = Path(target.get("run_path", "")).resolve()
+            attempt = Path(execution_path).resolve().parent if execution_path else None
+            trusted_attempt = bool(
+                attempt and round_root.is_dir()
+                and attempt.parent == round_root / "attempts"
+                and attempt.name.startswith("attempt-")
+                and Path(validation_path or "").resolve().parent == attempt
+            )
+            if trusted_attempt and validation_path and Path(validation_path).is_file():
+                validation = read_json(Path(validation_path))
+                config_valid = bool(target.get("config_valid") and validation.get("config_valid"))
+                artifacts.append(file_evidence(validation_path, role="validation"))
+            if trusted_attempt and execution_path and Path(execution_path).is_file():
+                artifacts.append(file_evidence(execution_path, role="execution"))
+                index_path = Path(execution_path).parent / "result-index.json"
+                if index_path.is_file():
+                    try:
+                        result_index = verify_result_index(index_path)
+                    except ValueError:
+                        result_index = None
+                    else:
+                        artifacts.append(file_evidence(index_path, role="result_index"))
+        level = derive_level(
+            runner_mode=episode.get("runner_mode", "unknown"),
+            config_valid=config_valid,
+            outcome_status=target.get("status", "missing") if target else "missing",
+            result_index=result_index,
+            physical_validated=bool(
+                target and (target.get("result_evidence") or {}).get("physical_validated")
+            ),
+        )
+        evidence = {
+            "source_type": "episode_attempt", "episode_id": episode["episode_id"],
+            "from_round": correction["from_round"], "to_round": correction["to_round"],
+            "outcome_status": target.get("status", "missing") if target else "missing",
+            "runner_mode": episode.get("runner_mode", "unknown"),
+            "derived_level": level, "integrity_verified": bool(artifacts),
+            "artifacts": artifacts,
+        }
+        return evidence, level
+
     def learn_from_episode(self, episode: dict[str, Any]) -> dict[str, list[str]]:
-        """Extract compact repair knowledge; never store full file contents as knowledge."""
+        """Extract repair knowledge from deterministic round and attempt evidence."""
         task = episode.get("task")
         if not isinstance(task, dict):
             return {"experience_ids": [], "procedure_ids": []}
@@ -204,26 +290,21 @@ class MemoryManager:
                         "dimension": task["geometry"]["dimension"]}
             experience_id = _digest("exp", identity)
             target = rounds.get(correction["to_round"])
-            verified = bool(target and target["config_valid"])
-            evidence = {"episode_id": episode["episode_id"],
-                        "from_round": correction["from_round"],
-                        "to_round": correction["to_round"],
-                        "outcome_status": target["status"] if target else "missing"}
+            evidence, level = self._evidence_from_round(episode, correction, target)
             path = self.knowledge_dir / f"{experience_id}.json"
             timestamp = _now()
             if path.exists():
-                record = read_json(path)
-                _validator("experience.schema.json").validate(record)
+                record = self._load_experience(path)
                 if evidence not in record["evidence"]:
                     record["evidence"].append(evidence)
-                if verified:
-                    record["status"] = "verified"
+                record["status"] = strongest_level(record["status"], level)
+                record["verification_scope"] = _SCOPE_BY_LEVEL[record["status"]]
                 record["updated_at"] = timestamp
             else:
                 record = {
-                    "schema_version": 1, "experience_id": experience_id,
+                    "schema_version": 2, "experience_id": experience_id,
                     "record_type": "repair_knowledge",
-                    "status": "verified" if verified else "candidate",
+                    "status": level,
                     "problem_codes": codes,
                     "applicability": {"case_type": task["case_type"],
                         "solver": task["solver"],
@@ -231,20 +312,78 @@ class MemoryManager:
                         "dimension": task["geometry"]["dimension"],
                         "source_reynolds_number": task["physics"]["reynolds_number"]},
                     "action": {"type": "restore_from_trusted_reference", "files": files},
-                    "evidence": [evidence], "verification_scope": "configuration",
-                    "trust": {"positive_outcomes": 1 if verified else 0,
+                    "evidence": [evidence], "verification_scope": _SCOPE_BY_LEVEL[level],
+                    "trust": {"positive_outcomes": 1 if level != "candidate" else 0,
                               "negative_outcomes": 0,
-                              "confidence": 2 / 3 if verified else 0.5,
-                              "evaluated_episode_ids": [episode["episode_id"]] if verified else []},
+                              "confidence": 2 / 3 if level != "candidate" else 0.5,
+                              "evaluated_episode_ids": (
+                                  [episode["episode_id"]] if level != "candidate" else [])},
+                    "user_control": {"state": "active", "approved": False,
+                                     "note": None, "updated_at": timestamp},
                     "created_at": timestamp, "updated_at": timestamp,
                 }
             _validator("experience.schema.json").validate(record)
             _write_json(path, record, replace=path.exists())
             experience_ids.append(experience_id)
-            if verified:
+            if level != "candidate":
                 procedure_ids.append(self._save_procedure(files, experience_id))
         return {"experience_ids": list(dict.fromkeys(experience_ids)),
                 "procedure_ids": list(dict.fromkeys(procedure_ids))}
+
+    def extract_episode_file(self, path: Path | str) -> dict[str, Any]:
+        source = Path(path).resolve()
+        episode = read_json(source)
+        if (not isinstance(episode.get("episode_id"), str)
+                or episode.get("runner_mode") not in {"simulated", "real"}
+                or not isinstance(episode.get("task"), dict)
+                or not isinstance(episode.get("rounds"), list)
+                or not isinstance(episode.get("corrections"), list)):
+            raise ValueError("episode 缺少提炼经验所需的稳定字段")
+        for correction in episode["corrections"]:
+            if (not isinstance(correction, dict)
+                    or not isinstance(correction.get("from_round"), int)
+                    or not isinstance(correction.get("to_round"), int)
+                    or not isinstance(correction.get("reason_codes"), list)
+                    or not isinstance(correction.get("changes"), list)):
+                raise ValueError("episode correction 结构无效")
+        learned = self.learn_from_episode(episode)
+        return {"episode_path": str(source), **learned,
+                "records": [self.get_experience(item) for item in learned["experience_ids"]]}
+
+    def get_experience(self, experience_id: str) -> dict[str, Any]:
+        path = self.knowledge_dir / f"{experience_id}.json"
+        if not path.is_file():
+            raise ValueError(f"经验不存在：{experience_id}")
+        return self._load_experience(path)
+
+    def list_experiences(self) -> list[dict[str, Any]]:
+        return [self._load_experience(path)
+                for path in sorted(self.knowledge_dir.glob("*.json"))]
+
+    def set_user_control(self, experience_id: str, *, state: str | None = None,
+                         approved: bool | None = None, note: str | None = None) -> dict[str, Any]:
+        if state not in {None, "active", "disabled"}:
+            raise ValueError("经验状态必须为 active 或 disabled")
+        path = self.knowledge_dir / f"{experience_id}.json"
+        record = self.get_experience(experience_id)
+        if state is not None:
+            record["user_control"]["state"] = state
+        if approved is not None:
+            record["user_control"]["approved"] = approved
+        if note is not None:
+            record["user_control"]["note"] = note
+        timestamp = _now()
+        record["user_control"]["updated_at"] = timestamp
+        record["updated_at"] = timestamp
+        _validator("experience.schema.json").validate(record)
+        _write_json(path, record, replace=True)
+        return record
+
+    def delete_experience(self, experience_id: str) -> None:
+        path = self.knowledge_dir / f"{experience_id}.json"
+        if not path.is_file():
+            raise ValueError(f"经验不存在：{experience_id}")
+        path.unlink()
 
     def record_use_outcomes(self, episode: dict[str, Any]) -> None:
         """Downweight reused knowledge when the task does not end with valid configuration."""
@@ -257,8 +396,7 @@ class MemoryManager:
             path = self.knowledge_dir / f"{experience_id}.json"
             if not path.exists():
                 continue
-            record = read_json(path)
-            _validator("experience.schema.json").validate(record)
+            record = self._load_experience(path)
             trust = deepcopy(self._trust(record))
             if episode["episode_id"] in trust["evaluated_episode_ids"]:
                 continue
@@ -271,6 +409,7 @@ class MemoryManager:
             record["trust"] = trust
             if trust["negative_outcomes"] >= 2 and trust["confidence"] < 0.5:
                 record["status"] = "candidate"
+                record["verification_scope"] = "candidate"
             record["updated_at"] = _now()
             _validator("experience.schema.json").validate(record)
             _write_json(path, record, replace=True)

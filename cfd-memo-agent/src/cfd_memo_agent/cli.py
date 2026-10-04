@@ -14,6 +14,7 @@ from cfd_memo_agent.diagnoser import diagnose_log
 from cfd_memo_agent.generator import generate_case
 from cfd_memo_agent.gmsh_import import import_gmsh_mesh
 from cfd_memo_agent.models import ModelConfigurationError, ModelSettings
+from cfd_memo_agent.memory import MemoryManager
 from cfd_memo_agent.memory_study import analyze_memory_study, run_memory_study
 from cfd_memo_agent.mesh_capabilities import list_mesh_capabilities
 from cfd_memo_agent.orchestrator import plan_description
@@ -173,6 +174,26 @@ def main() -> None:
     memory_study_parser.add_argument("--analyze", type=Path,
                                      help="Analyze an existing memory-study directory")
 
+    memory_parser = subparsers.add_parser(
+        "memory", help="Inspect and control evidence-backed local experience")
+    memory_actions = memory_parser.add_subparsers(dest="memory_action", required=True)
+    memory_extract = memory_actions.add_parser(
+        "extract", help="Extract candidate experience from a saved episode")
+    memory_extract.add_argument("--episode", required=True, type=Path)
+    memory_extract.add_argument("--memory-dir", required=True, type=Path)
+    memory_list = memory_actions.add_parser("list", help="List stored experience records")
+    memory_list.add_argument("--memory-dir", required=True, type=Path)
+    for action in ("disable", "enable", "approve", "reject"):
+        control = memory_actions.add_parser(action, help=f"{action} one experience")
+        control.add_argument("experience_id")
+        control.add_argument("--memory-dir", required=True, type=Path)
+        control.add_argument("--note")
+    memory_delete = memory_actions.add_parser("delete", help="Delete one local experience")
+    memory_delete.add_argument("experience_id")
+    memory_delete.add_argument("--memory-dir", required=True, type=Path)
+    memory_delete.add_argument("--confirm", action="store_true",
+                               help="Confirm permanent deletion of this local record")
+
     subparsers.add_parser("model-info", help="Show redacted Stage D model configuration")
 
     args = parser.parse_args()
@@ -180,7 +201,7 @@ def main() -> None:
     if args.command in {
         "plan", "generate", "run", "diagnose", "validate", "physics-study",
         "memory-study", "model-info", "import-case", "import-mesh", "capabilities",
-        "tutorials", "resume",
+        "tutorials", "resume", "memory",
     }:
         for stream in (sys.stdout, sys.stderr):
             if hasattr(stream, "reconfigure"):
@@ -274,6 +295,32 @@ def main() -> None:
             else:
                 result = run_memory_study(output_dir=args.output_dir, repeats=args.repeats)
         except (ValueError, OSError) as exc:
+            parser.error(str(exc))
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return
+
+    if args.command == "memory":
+        manager = MemoryManager(args.memory_dir)
+        try:
+            if args.memory_action == "extract":
+                result = manager.extract_episode_file(args.episode)
+            elif args.memory_action == "list":
+                result = {"records": manager.list_experiences()}
+            elif args.memory_action == "delete":
+                if not args.confirm:
+                    parser.error("memory delete 必须显式提供 --confirm")
+                manager.delete_experience(args.experience_id)
+                result = {"deleted": args.experience_id}
+            else:
+                controls = {
+                    "disable": {"state": "disabled"},
+                    "enable": {"state": "active"},
+                    "approve": {"approved": True},
+                    "reject": {"approved": False, "state": "disabled"},
+                }
+                result = manager.set_user_control(
+                    args.experience_id, note=args.note, **controls[args.memory_action])
+        except (OSError, UnicodeError, ValueError) as exc:
             parser.error(str(exc))
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return

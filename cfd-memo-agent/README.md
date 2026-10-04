@@ -374,8 +374,22 @@ runtime blockers，不直接读取密钥或修改 case。它输出 `accept`、`r
 恢复对应文件并保存 prevention 证据。连续失败会降低经验置信度并停用该经验。
 
 该向量器是无需网络和额外费用的可复现词法基线，不等于通用语义 embedding。
-`verified` 仍只表示配置复验通过，不表示 CFD 物理准确性已经验证。本地
+K1 将经验可信度细分为 `candidate -> config_verified -> run_verified ->
+physics_verified`。等级由 validation、真实 attempt、result index 和物理验收证据计算，
+模型反思不能自行升级。旧版 `verified` 记录因没有文件哈希会按 `candidate` 读取。本地
 `cases/memory/` 已被 Git 忽略。详见 [E1-E2 记忆说明](docs/memory.md)。
+
+可以从已保存 episode 重新提炼、查看和管理经验：
+
+~~~powershell
+python -m cfd_memo_agent.cli memory extract --episode <episode.json> --memory-dir cases/memory
+python -m cfd_memo_agent.cli memory list --memory-dir cases/memory
+python -m cfd_memo_agent.cli memory approve <experience-id> --memory-dir cases/memory
+python -m cfd_memo_agent.cli memory disable <experience-id> --memory-dir cases/memory
+python -m cfd_memo_agent.cli memory delete <experience-id> --memory-dir cases/memory --confirm
+~~~
+
+批准只记录用户意见，不改变机器验证等级；停用后的经验不会进入 Agent 提示。
 
 ## G：配置记忆对比实验
 

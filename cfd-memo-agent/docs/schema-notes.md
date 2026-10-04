@@ -99,9 +99,11 @@ geometry.json 的 planned_cells 是整数划分的计划数量，actual_cells �
 
 Episodes are archived under the local memory store in `episodes/`. E1-E2 also define
 `experience.schema.json` for compact repair knowledge and `procedure.schema.json` for verified
-steps. Episode v3 records Planner/Case Writer/Reviewer experience IDs, vector retrieval scores,
-confidence-backed uses, and run-before prevention evidence. `verified` means deterministic
-configuration validation passed; it does not mean the CFD physics was validated.
+steps. Experience schema v2 records hashed source artifacts, user controls and the machine-derived
+levels `candidate`, `config_verified`, `run_verified`, and `physics_verified`. Episode v3 records
+Planner/Case Writer/Reviewer experience IDs, vector retrieval scores, confidence-backed uses, and
+run-before prevention evidence. User approval is separate from verification level and cannot turn
+model reflection into run or physics evidence.
 
 ## I4 教程批准续跑
 

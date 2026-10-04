@@ -25,7 +25,13 @@ def test_structured_memory_survives_restart_and_is_cited_by_reviewer(tmp_path):
     assert len(first["memory"]["learned_procedure_ids"]) == 1
     experience_id = first["memory"]["learned_experience_ids"][0]
     knowledge_path = memory_dir / "knowledge" / f"{experience_id}.json"
-    assert read_json(knowledge_path)["status"] == "verified"
+    record = read_json(knowledge_path)
+    assert record["status"] == "config_verified"
+    assert record["verification_scope"] == "configuration"
+    assert record["evidence"][0]["integrity_verified"]
+    assert {item["role"] for item in record["evidence"][0]["artifacts"]} >= {
+        "validation", "execution",
+    }
     assert Path(first["memory"]["archived_episode_path"]).is_file()
     episode_validator().validate(first)
 

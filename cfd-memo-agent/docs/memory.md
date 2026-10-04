@@ -12,9 +12,16 @@ baselines and comparison groups do not silently gain historical information.
   logs, credentials, and research source documents.
 - Procedural memory stores verified execution steps under `procedures/`.
 
-An experience is `verified` only when the correction's destination round passes deterministic
-configuration validation. Its `verification_scope` is therefore `configuration`, not physical
-accuracy. Repeated matching experiences merge evidence instead of creating duplicate rules.
+K1 replaces the ambiguous `verified` label with four machine-derived levels:
+
+- `candidate`: a correction was observed, but deterministic evidence is missing.
+- `config_verified`: the destination round and its hashed validation report pass.
+- `run_verified`: a real OpenFOAM attempt completed and its complete result index verifies.
+- `physics_verified`: run evidence also carries an accepted physical validation result.
+
+Model reflection text is never an input to the level calculation. Repeated matching experiences
+merge evidence instead of creating duplicate rules. Existing v1 records are read as candidates
+until they are re-extracted from their original episode because they lack artifact hashes.
 
 ## Retrieval and Agent Injection
 
@@ -35,9 +42,14 @@ workflow restores only that allowed file and records `memory-prevention.json`. T
 known controlled configuration failure without allowing the model to write arbitrary content.
 Current validator/runner evidence remains authoritative.
 
-Each reuse updates evidence-backed confidence. Successful valid outcomes raise confidence;
+Only active records at `config_verified` or higher are retrieved. Each reuse updates
+evidence-backed confidence. Successful valid outcomes raise confidence;
 repeated failed reuse lowers it, and after two negative outcomes with confidence below 0.5 the
 record returns to `candidate` status and is no longer retrieved.
+
+`memory extract` rebuilds knowledge from a saved episode. `memory list` shows provenance and
+trust levels. `approve/reject/enable/disable/delete` provide explicit user control. Approval does
+not upgrade machine trust, while disabled or rejected records are excluded from retrieval.
 
 ```powershell
 python -m cfd_memo_agent.cli run "做 Re=100 的二维圆柱绕流" `
@@ -49,3 +61,8 @@ Run a second similar task with the same memory directory to exercise retrieval. 
 schema v3 records retrieval stages and scores, cited IDs, prevention evidence, confidence-backed
 uses, newly learned IDs, procedure IDs, and the archived episode path. Local `cases/memory/` is
 ignored by Git.
+
+```powershell
+python -m cfd_memo_agent.cli memory extract --episode <episode.json> --memory-dir cases/memory
+python -m cfd_memo_agent.cli memory list --memory-dir cases/memory
+```

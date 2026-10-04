@@ -208,10 +208,10 @@ C5/E 输出到 `cases/runs/workflow-<唯一编号>/`：input、task 检查、可
 
 ### K：真实长期记忆与反馈
 
-- 从真实 episode 提炼经验，保存适用条件、来源证据、修改动作、验证级别、版本和反例。
-- 记忆分为 `candidate`、`config_verified`、`run_verified`、`physics_verified`，模型反思不能直接升级为高可信知识。
-- 保留结构化过滤，增加可替换语义 embedding；记录经验为什么被检索、怎样影响决策及使用后是否有效。
-- 增加用户批准、纠正、停用和删除经验的入口；冲突或连续失败的经验自动降权。
+- [x] K1 从 episode/attempt 提炼经验，保存适用条件、修改动作和带 SHA-256 的来源证据；建立 `candidate`、`config_verified`、`run_verified`、`physics_verified` 四级可信度，模型反思和用户批准均不能直接升级机器验证等级。
+- [x] K1 增加 `memory extract/list/approve/reject/enable/disable/delete` 入口；停用经验不参与检索，连续失败仍会自动降回 candidate。旧版无哈希 `verified` 记录按 candidate 读取，避免继承过度声明。
+- [ ] K2 保留结构化过滤，增加可替换语义 embedding；记录经验为什么被检索、怎样影响决策及使用后是否有效。
+- [ ] K3 增加冲突检测、修订历史和面向真实失败的跨任务验收集。
 
 **验收：** 真实失败形成的经验能在相似新任务中被引用并减少试错；错误经验可追踪、降权和撤销；重启后仍可复用。
 
