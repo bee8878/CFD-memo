@@ -148,6 +148,31 @@ def test_real_stage_order_and_stop_on_failure(generated, ready_backend, monkeypa
         assert result["steps"][-1]["returncode"] == 7
 
 
+def test_runner_uses_mesh_spec_plan_not_adapter_command_plan(
+        generated, ready_backend, monkeypatch):
+    task = json.loads((generated / "task.json").read_text(encoding="utf-8"))
+    delegate = execution.get_case_adapter(task)
+
+    class EvidenceOnlyAdapter:
+        collect_mesh_evidence = delegate.collect_mesh_evidence
+        collect_field_evidence = delegate.collect_field_evidence
+        collect_physical_evidence = delegate.collect_physical_evidence
+
+    monkeypatch.setattr(execution, "get_case_adapter", lambda actual: EvidenceOnlyAdapter())
+
+    def execute(command, case, log, timeout):
+        stage = Path(command[0]).name
+        log.write_text("Mesh OK.\nEnd\n" if stage == "checkMesh" else "End\n")
+        return {"returncode": 0, "timed_out": False, "duration_seconds": 0.01}
+
+    monkeypatch.setattr(execution, "_execute", execute)
+    result = run_case(generated, mode="real", timeout=2)
+
+    assert result["status"] == "completed"
+    assert [step["stage"] for step in result["steps"]] == list(execution.COMMANDS)
+    assert result["mesh_spec"]["capability_id"] == "blockMesh"
+
+
 def test_execute_captures_stdout_stderr_and_exit_code(tmp_path):
     log = tmp_path / "process.log"
     result = execution._execute(

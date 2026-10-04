@@ -532,6 +532,55 @@ python -m cfd_memo_agent.cli resume `
 两种教程共享 CLI、Builder、validator、runner、episode 和报告入口，但各自仍需要经过
 审查的 adapter；这不是任意教程自动执行器，且 `physical_validated=false`。
 
+## J1：统一网格能力
+
+每个新生成或导入的运行目录现在保存 `mesh-spec.json`。它把网格来源与求解器分开，
+明确记录所需输入、准备命令和检查命令。runner 从该文件和可信能力注册表生成命令序列：
+
+- 模板或教程 `blockMesh`：`blockMesh -> checkMesh -> solver`。
+- 已有 `constant/polyMesh`：`checkMesh -> solver`，不会重新生成网格。
+- 外部 Gmsh：`gmshToFoam -> checkMesh -> solver`，只接受经检查的 2.2 ASCII 网格。
+
+`mesh-spec.json` 不能注入任意 shell 命令；保存内容与代码注册表不一致时执行会停止。
+使用 `python -m cfd_memo_agent.cli capabilities` 可查看求解器、case、教程和网格能力。
+旧运行目录没有该文件时会从受验证的 task 或 `CaseSpec` 推导，以保持兼容。
+
+## J2：外部 Gmsh 网格
+
+外部网格先通过受控导入，不直接交给 shell：
+
+```powershell
+python -m cfd_memo_agent.cli import-mesh examples\cavity-2x2.msh `
+  --task examples\task.cavity-2d-gmsh.json `
+  --boundary-map examples\gmsh-boundary-map.json `
+  --runs-dir cases\runs\gmsh
+python -m cfd_memo_agent.cli run --run "cases\runs\gmsh\运行目录" `
+  --runner real --timeout 120
+```
+
+导入器只支持 Gmsh 2.2 ASCII、三维六面体和四边形边界面；首版限已注册的
+`cavity-2d`。它验证几何范围、单元数、物理组和一对一边界映射，保存原文件/副本
+SHA-256。runner 使用固定参数调用 `gmshToFoam`，把转换后的 patch 类型受控设为
+`wall/empty`，再执行 `checkMesh` 和求解器。真实示例为 4 单元工程验收，
+`physical_validated=false`，不能作为方腔物理精度结果。
+
+## J3：安全恢复与资源限制
+
+每次真实执行都会保存 `stage-state.json`，并在网格准备和 `checkMesh` 完成后创建
+只读约定的阶段 checkpoint。失败或超时后，用旧 attempt 创建一个新的恢复 attempt：
+
+```powershell
+python -m cfd_memo_agent.cli run --run "cases\runs\某次运行" --runner real `
+  --resume-attempt "cases\runs\某次运行\attempts\失败的attempt" `
+  --timeout 300 --minimum-free-mb 100 --max-log-mb 100
+```
+
+恢复前会核对 task、case、CaseSpec、MeshSpec、执行计划和 checkpoint SHA-256。
+输入或 checkpoint 改动后拒绝恢复；旧 attempt 永不改写。已完成的 `blockMesh` 或
+`gmshToFoam` 可以复用，但 `checkMesh` 必须在新 attempt 中重新执行。每个命令仍有
+超时限制，并增加运行前磁盘空间和单日志大小限制。`result-index.json` 汇总输入、
+阶段状态、日志、网格/结果证据和最终场文件的大小与 SHA-256。
+
 ## JSON 格式检查
 
 ```powershell

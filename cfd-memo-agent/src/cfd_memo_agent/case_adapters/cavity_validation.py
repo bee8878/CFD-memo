@@ -6,6 +6,7 @@ import math
 from pathlib import Path
 from typing import Any
 
+from cfd_memo_agent.gmsh import inspect_gmsh_text, sha256_bytes
 from cfd_memo_agent.validator.foam import Group, parse_foam, read_json
 from cfd_memo_agent.validator.task import close, issue, validate_task
 from cfd_memo_agent.tutorial_capabilities import get_tutorial_capability
@@ -118,9 +119,12 @@ def validate_cavity_case(task: dict[str, Any], case_dir: Path | str) -> dict:
     if not report["task_valid"]:
         return report
     root = Path(case_dir)
+    gmsh = task["mesh"].get("generator") == "gmsh"
     report["runtime_blockers"] = [issue(
-        "MESH_NOT_VERIFIED", "尚未执行本次 case 的 blockMesh/checkMesh，不能据此证明网格可运行",
-        "system/blockMeshDict")]
+        "MESH_NOT_VERIFIED",
+        "尚未执行本次 case 的 gmshToFoam/checkMesh，不能据此证明网格可运行"
+        if gmsh else "尚未执行本次 case 的 blockMesh/checkMesh，不能据此证明网格可运行",
+        "mesh/mesh.msh" if gmsh else "system/blockMeshDict")]
     reference = task.get("tutorial_reference")
     if reference is not None:
         capability = get_tutorial_capability(reference["tutorial_id"])
@@ -144,8 +148,11 @@ def validate_cavity_case(task: dict[str, Any], case_dir: Path | str) -> dict:
         except (OSError, ValueError) as exc:
             report["errors"].append(issue("TUTORIAL_WHITELIST", str(exc), str(root)))
             return report
+    required = dict(REQUIRED)
+    if gmsh:
+        required.pop("system/blockMeshDict")
     documents = {}
-    for relative, (obj, cls) in REQUIRED.items():
+    for relative, (obj, cls) in required.items():
         path = root / relative
         try:
             document = parse_foam(path.read_text(encoding="utf-8"))
@@ -200,10 +207,32 @@ def validate_cavity_case(task: dict[str, Any], case_dir: Path | str) -> dict:
                 raise ValueError(f"{key} 与任务不一致")
     except (KeyError, TypeError, ValueError) as exc:
         checks.append(("VALUE_MISMATCH", str(exc), "system/controlDict"))
-    try:
-        _validate_mesh(documents["system/blockMeshDict"], task)
-    except (KeyError, TypeError, ValueError) as exc:
-        checks.append(("MESH_MISMATCH", str(exc), "system/blockMeshDict"))
+    if gmsh:
+        try:
+            path = root / "mesh/mesh.msh"
+            data = path.read_bytes()
+            inspection = inspect_gmsh_text(
+                data.decode("utf-8"),
+                expected_boundaries=set(task["boundary_conditions"]),
+                geometry=task["geometry"],
+                expected_cells=task["mesh"]["cells_x"] * task["mesh"]["cells_y"],
+            )
+            metadata = read_json(root / "mesh-import.json")
+            if (task["mesh"].get("source_path") != "mesh/mesh.msh"
+                    or task["mesh"].get("copied_sha256") != sha256_bytes(data)
+                    or metadata.get("copied_sha256") != sha256_bytes(data)
+                    or metadata.get("source_sha256") != task["mesh"].get("source_sha256")
+                    or metadata.get("boundary_map") != task["mesh"].get("boundary_map")
+                    or metadata.get("inspection") != inspection
+                    or metadata.get("scripts_executed") is not False):
+                raise ValueError("Gmsh 导入来源、哈希、边界映射或检查记录不一致")
+        except (OSError, UnicodeError, KeyError, TypeError, ValueError) as exc:
+            checks.append(("GMSH_IMPORT_INVALID", str(exc), "mesh/mesh.msh"))
+    else:
+        try:
+            _validate_mesh(documents["system/blockMeshDict"], task)
+        except (KeyError, TypeError, ValueError) as exc:
+            checks.append(("MESH_MISMATCH", str(exc), "system/blockMeshDict"))
     try:
         metadata = read_json(root / "constant/geometry.json")
         geometry = task["geometry"]

@@ -1,0 +1,5 @@
+{
+  "lid": "movingWall",
+  "walls": "fixedWalls",
+  "span": "frontAndBack"
+}

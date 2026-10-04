@@ -200,9 +200,9 @@ C5/E 输出到 `cases/runs/workflow-<唯一编号>/`：input、task 检查、可
 
 ### J：网格与执行扩展
 
-- 把网格来源统一为模板生成、已有 `polyMesh`、外部 Gmsh 网格和用户导入 case；网格工具与求解器解耦。
-- runner 根据能力计划执行 `blockMesh`、`gmshToFoam`、`checkMesh`、求解器和后处理，不接受模型直接拼接 shell 命令。
-- 增加断点恢复、超时清理、运行资源限制和结果完整性检查。
+- [x] J1 统一模板生成、教程 `blockMesh` 和已有 `polyMesh` 的 `MeshSpec`；网格工具与求解器解耦。runner 从可信注册表规划命令，不接受模型或 JSON 直接拼接 shell 命令。Gmsh 已登记为明确的未实现能力缺口。
+- [x] J2 实现外部 Gmsh 2.2 ASCII 网格的安全导入、`gmshToFoam` 转换、一对一边界映射和转换后校验；首个 `cavity-2d` 外部网格已真实完成。
+- [x] J3 增加阶段状态、不可变 checkpoint、新 attempt 恢复、超时/中断清理、磁盘与日志限制和结果完整性索引；恢复时强制重新执行 `checkMesh`。
 
 **验收：** 至少两种网格来源真实运行成功；中断后可以从已保存状态继续；失败不会污染原始 case 或旧结果。
 
@@ -250,4 +250,10 @@ I4 已完成教程提案的显式批准续跑：`resume --approve-tutorial --run
 
 I5 已完成教程能力数据化和第二官方基准：可安装的 `tutorial_capabilities.json` 声明版本、求解器、物理模型、adapter、字段、网格工具、文件白名单和冻结 task，通用 Builder 不再包含按教程 ID 分支。新增 OpenFOAM 10 `incompressible/icoFoam/cavity/cavity`，只复制批准字典并受控展开 `$p` 引用，将官方 `timeStep` 写出控制映射为 task 的 `runTime` 语义。自然语言提案经同一 `resume` 入口真实完成 `blockMesh -> checkMesh -> icoFoam`，400 个单元运行至 `t=0.5`，`U/p` 结果证据通过；原提案、两次失败续跑和最终成功续跑均保留。后台阶回归保持通过，两教程覆盖 `simpleFoam`/RANS/稳态与 `icoFoam`/层流/瞬态。两者仍是已审查能力，不代表支持任意教程，且 `physical_validated=false`。
 
-下一步进入 J1：统一网格来源协议，把模板生成、教程 `blockMesh` 和已有 `polyMesh` 描述成独立 mesh capability，并让 runner 从任务计划生成命令序列；先保持当前三个真实基准结果不变，再为外部 Gmsh 网格预留明确能力缺口。
+J1 已完成统一网格来源协议：生成 case、教程 case 和导入 case 都保存或推导 `MeshSpec`；`blockMesh` 与已有 `polyMesh` 通过同一能力注册表形成不同命令序列，runner 不再读取 adapter 的命令计划。保存计划若被篡改会停止执行；Gmsh 只公开能力缺口，不会被误执行。现有三个真实基准仍使用原求解器与网格配置，`physical_validated` 状态不变。
+
+J2 已完成外部 Gmsh 的受控导入与真实执行：导入器限制为 2.2 ASCII，检查节点、六面体、几何范围、单元数、物理组和边界映射，并保存来源与工作副本哈希。runner 仅按可信计划执行 `gmshToFoam -> checkMesh -> icoFoam`，转换后受控设置 `wall/empty` patch 类型。2 x 2 方腔外部网格真实得到 4 个单元并运行至 `t=0.05`，最终 `U/p` 证据通过；该小网格只用于工程验收，`physical_validated=false`。
+
+J3 已完成阶段级安全恢复和资源保护：真实 attempt 原子保存 `stage-state.json`，网格阶段保存带 SHA-256 的 checkpoint；恢复总是创建新 attempt，核对原始输入、执行计划和 checkpoint，复用 `blockMesh/gmshToFoam` 后强制重跑 `checkMesh`。命令保留超时与进程组清理，并增加运行前磁盘空间、单日志大小限制。`result-index.json` 给输入、状态、日志、证据和最终场文件建立完整性索引。真实 Gmsh 验收先在 `checkMesh` 超时，随后从 `gmshToFoam` checkpoint 恢复并运行至 `t=10`，原失败 attempt 保持不变。
+
+下一步进入 K1：只从真实 episode/attempt 提炼带来源证据和适用条件的候选经验，建立 `candidate -> config_verified -> run_verified -> physics_verified` 可信度状态，禁止模型反思自行升级可信级别。

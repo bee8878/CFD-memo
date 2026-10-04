@@ -53,7 +53,7 @@
     "mesh": {
       "type": "object",
       "properties": {
-        "generator": { "enum": ["blockMesh", "snappyHexMesh", "manual-template", "tutorial-template"] },
+        "generator": { "enum": ["blockMesh", "snappyHexMesh", "manual-template", "tutorial-template", "gmsh"] },
         "target_cells": { "type": "integer", "minimum": 1 },
         "radial_grading": { "type": "number", "minimum": 1 },
         "near_field_radius": { "type": "number", "exclusiveMinimum": 0 },

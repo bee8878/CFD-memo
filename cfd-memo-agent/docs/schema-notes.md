@@ -124,3 +124,26 @@ adapter、必需字段、网格工具、文件白名单和冻结 task 模板。P
 方腔教程 task 使用已有 `cavity-2d` schema，并增加 `tutorial_reference`；该来源只能与
 `tutorial-template` 网格同时出现。`CaseSpec.source_type=tutorial`，来源路径、manifest、
 复制文件及脚本禁用状态写入 `tutorial-provenance.json`。旧的手工方腔 task 不需要迁移。
+
+## J1-J2 网格来源记录
+
+每个新 run 保存 `mesh-spec.json`，记录 `source_type`、`capability_id`、必需输入、
+准备命令和检查命令。该计划必须与 Python 可信注册表完全一致，JSON 不能增加命令。
+模板/教程使用 `blockMesh`，已有 `polyMesh` 跳过生成，外部 Gmsh 使用 `gmshToFoam`。
+
+Gmsh task 的 `mesh.generator` 为 `gmsh`，并保存相对 `source_path`、一对一
+`boundary_map`、`source_sha256` 和 `copied_sha256`。case 内的 `mesh-import.json`
+另存格式检查、几何范围、节点/单元数、物理组和脚本禁用状态。执行尝试保存
+`mesh-conversion.json`，记录转换后的 patch 类型变化；`mesh_evidence` 绑定本次转换网格。
+这些字段证明来源和工程执行可追溯，不会把 `physical_validated` 设为 true。
+
+## J3 阶段状态与结果索引
+
+真实 attempt 新增 `stage-state.json`，记录输入指纹、可信命令计划、父 attempt 和每个
+阶段的 pending/running/completed/failed/timeout/resource_limit 状态。完成的网格阶段保存
+`checkpoints/<stage>/case/` 及目录 SHA-256。恢复前同时复核 run 输入指纹、计划、路径边界
+和 checkpoint 指纹；恢复产生新 attempt，不改写来源。
+
+`result-index.json` 保存本次状态、输入指纹、物理验证标记，以及 task、CaseSpec、
+MeshSpec、状态、日志、网格证据、结果证据和最终场文件的相对路径、字节数及 SHA-256。
+它用于发现缺失或被修改的产物，不把命令完成提升为物理验证成功。

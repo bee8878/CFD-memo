@@ -12,7 +12,7 @@ from cfd_memo_agent.mesh import planned_cells
 
 def fingerprint(case):
     digest = hashlib.sha256()
-    for folder in ('0', 'system', 'constant'):
+    for folder in ('0', 'system', 'constant', 'mesh'):
         for path in sorted((Path(case) / folder).rglob('*')):
             if path.is_file() and 'polyMesh' not in path.parts:
                 digest.update(path.relative_to(case).as_posix().encode())

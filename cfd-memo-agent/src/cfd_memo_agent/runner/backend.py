@@ -10,7 +10,7 @@ from uuid import uuid4
 DISTRO = 'Ubuntu-22.04'
 BASHRC = '/opt/openfoam10/etc/bashrc'
 STAGES = ('blockMesh', 'checkMesh', 'icoFoam')
-ALLOWED_STAGES = frozenset((*STAGES, 'simpleFoam'))
+ALLOWED_STAGES = frozenset((*STAGES, 'simpleFoam', 'gmshToFoam'))
 
 
 def _text(data):
@@ -56,9 +56,10 @@ def wsl_path(environment, path):
     return _capture(environment['prefix'] + ['wslpath', '-a', '-u', str(Path(path).absolute())])
 
 
-def execute_wsl(environment, stage, case, log, timeout, execute):
+def execute_wsl(environment, stage, case, log, timeout, execute, arguments=None):
     """A Linux watchdog and an invocation-specific process group bound cancellation."""
     linux_case = wsl_path(environment, case)
+    stage_arguments = arguments or ('-case', linux_case)
     pid_file = '/tmp/cfd-memo-' + uuid4().hex + '.pid'
     prefix = environment['prefix']
     script = (
@@ -69,7 +70,7 @@ def execute_wsl(environment, stage, case, log, timeout, execute):
         'exec timeout --signal=TERM --kill-after=5 "$@"' + "' cfd-memo-group \"$@\""
     )
     command = prefix + ['bash', '-c', script, 'cfd-memo', BASHRC, pid_file,
-                        str(timeout), environment['executables'][stage], '-case', linux_case]
+                        str(timeout), environment['executables'][stage], *stage_arguments]
     cleanup = (
         'if read -r pid born < "$1" 2>/dev/null; then '
         'case "$pid:$born" in *[!0-9:]*|:*) exit 1;; esac; '

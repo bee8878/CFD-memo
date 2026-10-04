@@ -242,8 +242,8 @@ class Cavity2DAdapter:
             (task.get("boundary_conditions") == CAVITY_BOUNDARIES,
              "UNSUPPORTED_BOUNDARY", "当前只支持方腔基准的边界条件组合",
              "task.boundary_conditions"),
-            (generator in {"manual-template", "tutorial-template"},
-             "UNSUPPORTED_MESH", "方腔适配器只实现本地模板或受控教程网格",
+            (generator in {"manual-template", "tutorial-template", "gmsh"},
+             "UNSUPPORTED_MESH", "方腔适配器只实现本地模板、受控教程或 Gmsh 网格",
              "task.mesh.generator"),
             (generator != "tutorial-template" or (
                 isinstance(reference, dict)

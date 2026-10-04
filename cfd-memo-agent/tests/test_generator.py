@@ -31,6 +31,9 @@ def test_generate_case_writes_task_parameters_and_copies_files(tmp_path):
     assert geometry["mesh_verified"] is False
     assert result["warnings"]
     assert json.loads(Path(result["task_path"]).read_text(encoding="utf-8")) == task
+    mesh_spec = json.loads(Path(result["mesh_spec_path"]).read_text(encoding="utf-8"))
+    assert mesh_spec["capability_id"] == "blockMesh"
+    assert mesh_spec["preparation_commands"] == ["blockMesh"]
     assert json.loads((Path(result["run_path"]) / "generation.json").read_text()) == result
     for name in ("0/p", "system/fvSchemes", "system/fvSolution"):
         assert (case / name).read_bytes() == (

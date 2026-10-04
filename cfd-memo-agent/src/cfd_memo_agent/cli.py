@@ -12,8 +12,10 @@ from cfd_memo_agent.case_adapters import list_case_adapters
 from cfd_memo_agent.case_import import import_case, load_case_spec, validate_imported_case
 from cfd_memo_agent.diagnoser import diagnose_log
 from cfd_memo_agent.generator import generate_case
+from cfd_memo_agent.gmsh_import import import_gmsh_mesh
 from cfd_memo_agent.models import ModelConfigurationError, ModelSettings
 from cfd_memo_agent.memory_study import analyze_memory_study, run_memory_study
+from cfd_memo_agent.mesh_capabilities import list_mesh_capabilities
 from cfd_memo_agent.orchestrator import plan_description
 from cfd_memo_agent.physical_study import continue_physical_study, run_physical_study
 from cfd_memo_agent.runner import run_case
@@ -62,6 +64,15 @@ def main() -> None:
         "import-case", help="Inspect and copy an existing OpenFOAM case safely")
     import_parser.add_argument("source", type=Path, help="Existing OpenFOAM case directory")
     import_parser.add_argument("--runs-dir", type=Path, help="Parent directory for imported runs")
+
+    mesh_import_parser = subparsers.add_parser(
+        "import-mesh", help="Bind a validated Gmsh 2.2 ASCII mesh to a task")
+    mesh_import_parser.add_argument("source", type=Path, help="External .msh file")
+    mesh_import_parser.add_argument("--task", required=True, type=Path,
+                                    help="Registered cavity task JSON")
+    mesh_import_parser.add_argument("--boundary-map", type=Path,
+                                    help="Optional JSON mapping from physical names to task boundaries")
+    mesh_import_parser.add_argument("--runs-dir", type=Path)
 
     subparsers.add_parser("capabilities", help="List supported solver capabilities")
 
@@ -114,6 +125,12 @@ def main() -> None:
     run_parser.add_argument("--runner", required=True, choices=("simulated", "real"))
     run_parser.add_argument("--scenario", choices=tuple(SCENARIOS), help="Simulated log scenario")
     run_parser.add_argument("--timeout", type=float, default=300.0, help="Timeout per real command in seconds")
+    run_parser.add_argument("--resume-attempt", type=Path,
+                            help="Create a new attempt from a verified failed attempt checkpoint")
+    run_parser.add_argument("--minimum-free-mb", type=int, default=100,
+                            help="Minimum free disk space required before execution")
+    run_parser.add_argument("--max-log-mb", type=int, default=100,
+                            help="Maximum bytes written by one command log, in MiB")
     run_parser.add_argument("--planner-fallback", choices=("stop", "rules"), default="stop",
                             help="Explicit behavior when an LLM planner fails")
     run_parser.add_argument("--memory-mode",
@@ -130,7 +147,8 @@ def main() -> None:
     diagnose_parser = subparsers.add_parser("diagnose", help="Diagnose an existing log without running commands")
     diagnose_parser.add_argument("--log", required=True, type=Path)
     diagnose_parser.add_argument("--returncode", required=True, type=int, help="Recorded process exit code")
-    diagnose_parser.add_argument("--stage", choices=COMMANDS, default="icoFoam")
+    diagnose_parser.add_argument(
+        "--stage", choices=(*COMMANDS, "gmshToFoam", "simpleFoam"), default="icoFoam")
     diagnose_parser.add_argument("--timed-out", action="store_true")
     diagnose_parser.add_argument("--simulated", action="store_true", help="Label synthetic log evidence")
     diagnose_parser.add_argument("--output", type=Path, help="Save a new report without overwriting")
@@ -161,7 +179,7 @@ def main() -> None:
 
     if args.command in {
         "plan", "generate", "run", "diagnose", "validate", "physics-study",
-        "memory-study", "model-info", "import-case", "capabilities",
+        "memory-study", "model-info", "import-case", "import-mesh", "capabilities",
         "tutorials", "resume",
     }:
         for stream in (sys.stdout, sys.stderr):
@@ -180,6 +198,7 @@ def main() -> None:
         print(json.dumps({
             "capabilities": list_capabilities(),
             "case_adapters": list_case_adapters(),
+            "mesh_capabilities": list_mesh_capabilities(),
             "tutorial_capabilities": list_tutorial_capabilities(),
         }, ensure_ascii=False, indent=2))
         return
@@ -235,6 +254,17 @@ def main() -> None:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         raise SystemExit(0 if result["validation"]["config_valid"] else 1)
 
+    if args.command == "import-mesh":
+        try:
+            result = import_gmsh_mesh(
+                args.source, task_path=args.task, boundary_map=args.boundary_map,
+                runs_dir=args.runs_dir,
+            )
+        except (ValueError, OSError, UnicodeError, KeyError, TypeError) as exc:
+            parser.error(str(exc))
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        raise SystemExit(0 if result["validation"]["config_valid"] else 1)
+
     if args.command == "memory-study":
         try:
             if args.analyze is not None:
@@ -260,9 +290,18 @@ def main() -> None:
             parser.error("--run 是 C4 单次执行，不接受长期记忆选项")
         if args.run is None and args.scenario is not None:
             parser.error("--scenario 仅用于 C4 的 --run；工作流故障演示请使用 --fault")
+        if args.run is None and (
+            args.resume_attempt is not None or args.minimum_free_mb != 100
+            or args.max_log_mb != 100
+        ):
+            parser.error("恢复与资源限制选项目前只用于 --run 单次真实执行")
         try:
             if args.run is not None:
-                result = run_case(args.run, mode=args.runner, scenario=args.scenario, timeout=args.timeout)
+                result = run_case(
+                    args.run, mode=args.runner, scenario=args.scenario, timeout=args.timeout,
+                    resume_attempt=args.resume_attempt,
+                    minimum_free_mb=args.minimum_free_mb, max_log_mb=args.max_log_mb,
+                )
             else:
                 result = run_workflow(args.description, task_path=args.task, mode=args.runner,
                                       runs_dir=args.runs_dir, max_corrections=args.max_corrections,

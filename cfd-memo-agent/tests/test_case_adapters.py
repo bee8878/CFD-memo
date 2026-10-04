@@ -46,12 +46,16 @@ def test_generator_core_dispatches_through_adapter(monkeypatch, tmp_path):
 
         def generate(self, actual, **options):
             calls.append((actual, options))
-            return {"status": "fake-generated"}
+            run = tmp_path / "fake-run"
+            run.mkdir()
+            (run / "generation.json").write_text("{}", encoding="utf-8")
+            return {"status": "fake-generated", "run_path": str(run)}
 
     monkeypatch.setattr(generator_case, "get_case_adapter", lambda actual: FakeAdapter())
     result = generator_case.generate_case(task, runs_dir=tmp_path, intent={"safe": True})
 
-    assert result == {"status": "fake-generated"}
+    assert result["status"] == "fake-generated"
+    assert Path(result["mesh_spec_path"]).is_file()
     assert calls == [(task, {"runs_dir": tmp_path, "template_dir": None,
                              "intent": {"safe": True}})]
 

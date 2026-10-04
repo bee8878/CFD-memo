@@ -30,7 +30,7 @@ class CaseSpec:
             raise ValueError("CaseSpec source_type 必须为 generated、imported 或 tutorial")
         if self.dimension not in {"2D", "3D", "unknown"}:
             raise ValueError("CaseSpec dimension 必须为 2D、3D 或 unknown")
-        if self.mesh_source not in {"blockMesh", "polyMesh", "unknown"}:
+        if self.mesh_source not in {"blockMesh", "polyMesh", "gmsh", "unknown"}:
             raise ValueError("CaseSpec mesh_source 不受支持")
         capability = get_capability(self.solver)
         if self.physics_model != capability.physics_model:
@@ -58,11 +58,9 @@ class CaseSpec:
         capability = get_capability(task["solver"])
         mesh = task.get("mesh", {})
         generator = mesh.get("generator", "blockMesh")
-        mesh_source = (
-            "blockMesh"
-            if generator in {"blockMesh", "manual-template", "tutorial-template"}
-            else "unknown"
-        )
+        mesh_source = "blockMesh" if generator in {
+            "blockMesh", "manual-template", "tutorial-template",
+        } else "gmsh" if generator == "gmsh" else "unknown"
         return cls(
             schema_version=1,
             task_id=task["task_id"],

@@ -13,6 +13,9 @@ from uuid import uuid4
 
 from cfd_memo_agent.capabilities import get_capability
 from cfd_memo_agent.case_spec import CaseSpec
+from cfd_memo_agent.mesh_capabilities import (
+    mesh_spec_from_case_spec, missing_mesh_inputs, save_mesh_spec,
+)
 from cfd_memo_agent.validator.foam import parse_foam, read_json
 from cfd_memo_agent.validator.task import issue, new_report
 
@@ -165,6 +168,7 @@ def validate_imported_case(spec: CaseSpec | dict[str, Any], case_dir: Path | str
         expected = spec if isinstance(spec, CaseSpec) else CaseSpec.from_dict(spec)
         actual = inspect_case(root, task_id=expected.task_id)
         capability = get_capability(expected.solver)
+        mesh_spec = mesh_spec_from_case_spec(expected)
         for relative in capability.required_files:
             if not (root / relative).is_file():
                 report["errors"].append(issue("FILE_MISSING", "缺少求解器必要文件", relative))
@@ -173,9 +177,13 @@ def validate_imported_case(spec: CaseSpec | dict[str, Any], case_dir: Path | str
             if getattr(actual, name) != getattr(expected, name):
                 report["errors"].append(issue(
                     "CASE_SPEC_MISMATCH", f"导入 case 与 CaseSpec 的 {name} 不一致", name))
-        if expected.mesh_source == "unknown":
+        for relative in missing_mesh_inputs(mesh_spec, root):
+            report["errors"].append(issue(
+                "MESH_INPUT_MISSING", "缺少网格能力所需输入", relative))
+        if not mesh_spec.execution_ready:
             report["runtime_blockers"].append(issue(
-                "MESH_SOURCE_UNKNOWN", "没有可用 polyMesh 或 blockMeshDict", "case"))
+                "MESH_CAPABILITY_GAP",
+                "当前网格来源没有可执行的可信能力", mesh_spec.source_type))
     except (OSError, UnicodeError, ValueError, TypeError, KeyError) as exc:
         report["errors"].append(issue("IMPORTED_CASE_INVALID", str(exc), str(root)))
     report["config_valid"] = not report["errors"]
@@ -207,6 +215,8 @@ def import_case(source: Path | str, *, runs_dir: Path | None = None) -> dict[str
         shutil.copytree(source_path, run_dir / "case")
         (run_dir / "case-spec.json").write_text(
             json.dumps(spec.to_dict(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        mesh_spec_path = save_mesh_spec(
+            run_dir / "mesh-spec.json", mesh_spec_from_case_spec(spec))
         result = {
             "status": "imported",
             "run_id": run_id,
@@ -214,6 +224,7 @@ def import_case(source: Path | str, *, runs_dir: Path | None = None) -> dict[str
             "original_path": str(run_dir / "original"),
             "case_path": str(run_dir / "case"),
             "case_spec_path": str(run_dir / "case-spec.json"),
+            "mesh_spec_path": str(mesh_spec_path),
             "source_sha256": source_hash,
             "validation": validate_imported_case(spec, run_dir / "case"),
             "scripts_executed": False,

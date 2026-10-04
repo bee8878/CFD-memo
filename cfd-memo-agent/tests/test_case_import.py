@@ -10,6 +10,7 @@ from cfd_memo_agent.capabilities import get_capability, list_capabilities
 from cfd_memo_agent.case_import import import_case, inspect_case, load_case_spec, validate_imported_case
 from cfd_memo_agent.case_spec import CaseSpec
 from cfd_memo_agent.generator.case import PROJECT_ROOT
+from cfd_memo_agent.mesh_capabilities import load_mesh_spec
 from cfd_memo_agent.planner import plan_task
 from cfd_memo_agent.runner import run_case
 from cfd_memo_agent.runner import execution, imported
@@ -49,10 +50,12 @@ def test_import_creates_original_work_copy_spec_and_validation(tmp_path):
     result = import_case(source, runs_dir=tmp_path / "runs")
     run = Path(result["run_path"])
     spec = load_case_spec(run / "case-spec.json")
+    mesh_spec = load_mesh_spec(run / "mesh-spec.json")
 
     assert result["status"] == "imported" and result["scripts_executed"] is False
     assert result["validation"]["config_valid"]
     assert spec.source_type == "imported" and spec.mesh_source == "blockMesh"
+    assert mesh_spec.source_type == "imported-blockMesh"
     assert spec.dimension == "2D" and spec.solver == "icoFoam"
     assert set(spec.boundaries) == {"inlet", "outlet", "cylinder", "top", "bottom", "frontAndBack"}
     assert validate_imported_case(spec, run / "case")["config_valid"]
@@ -114,14 +117,51 @@ def test_imported_case_refuses_simulated_runner(tmp_path):
     assert not (run / "attempts").exists()
 
 
+def test_imported_poly_mesh_plan_skips_block_mesh(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    shutil.copytree(TEMPLATE, source)
+    poly_mesh = source / "constant/polyMesh"
+    poly_mesh.mkdir()
+    for name in ("boundary", "faces", "neighbour", "owner", "points"):
+        (poly_mesh / name).write_text(name, encoding="utf-8")
+    run = Path(import_case(source, runs_dir=tmp_path / "runs")["run_path"])
+    calls = []
+
+    monkeypatch.setattr(imported, "discover", lambda stages: {
+        "backend": "native", "version": "10",
+        "executables": {stage: f"/mock/{stage}" for stage in stages},
+    })
+    monkeypatch.setattr(imported, "_mesh_hash", lambda case: "poly-mesh-hash")
+    monkeypatch.setattr(imported, "_result_evidence", lambda *args: {
+        "end_time": 10, "fields": {"U": "U", "p": "p"},
+        "mesh_sha256": "poly-mesh-hash", "physical_validated": False,
+    })
+
+    def fake_execute(command, case, log, timeout):
+        stage = Path(command[0]).name
+        calls.append(stage)
+        log.write_text("Mesh OK.\nEnd\n" if stage == "checkMesh" else "End\n")
+        return {"returncode": 0, "timed_out": False, "duration_seconds": 0.01}
+
+    monkeypatch.setattr(execution, "_execute", fake_execute)
+    result = run_case(run, mode="real", timeout=2)
+
+    assert calls == ["checkMesh", "icoFoam"]
+    assert result["status"] == "completed"
+    assert result["mesh_spec"]["capability_id"] == "polyMesh"
+
+
 def test_import_and_capabilities_cli_work_from_other_directory(tmp_path):
     source = tmp_path / "source"
     shutil.copytree(TEMPLATE, source)
     capabilities = subprocess.run(
         [sys.executable, "-m", "cfd_memo_agent.cli", "capabilities"],
-        cwd=tmp_path, capture_output=True, text=True, check=True)
+        cwd=tmp_path, capture_output=True, text=True, encoding="utf-8", check=True)
     assert {item["name"] for item in json.loads(capabilities.stdout)["capabilities"]} == {
         "icoFoam", "simpleFoam",
+    }
+    assert {item["name"] for item in json.loads(capabilities.stdout)["mesh_capabilities"]} == {
+        "blockMesh", "polyMesh", "gmsh", "unknown",
     }
     imported_result = subprocess.run(
         [sys.executable, "-m", "cfd_memo_agent.cli", "import-case", str(source),
