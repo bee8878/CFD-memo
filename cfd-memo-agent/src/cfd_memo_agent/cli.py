@@ -15,10 +15,13 @@ from cfd_memo_agent.generator import generate_case
 from cfd_memo_agent.gmsh_import import import_gmsh_mesh
 from cfd_memo_agent.models import ModelConfigurationError, ModelSettings
 from cfd_memo_agent.memory import MemoryManager
+from cfd_memo_agent.memory.episodes import write_record
+from cfd_memo_agent.memory.transfer import evaluate_transfer_manifest, run_real_transfer_study
 from cfd_memo_agent.memory_study import analyze_memory_study, run_memory_study
 from cfd_memo_agent.mesh_capabilities import list_mesh_capabilities
 from cfd_memo_agent.orchestrator import plan_description
 from cfd_memo_agent.physical_study import continue_physical_study, run_physical_study
+from cfd_memo_agent.preflight import build_preflight, confirm_preflight
 from cfd_memo_agent.runner import run_case
 from cfd_memo_agent.runner.execution import COMMANDS, SCENARIOS
 from cfd_memo_agent.tutorials import (
@@ -30,6 +33,9 @@ from cfd_memo_agent.tutorial_capabilities import list_tutorial_capabilities
 from cfd_memo_agent.tutorial_resume import resume_tutorial_workflow
 from cfd_memo_agent.correction import FAULTS
 from cfd_memo_agent.workflow import run_workflow
+from cfd_memo_agent.workbench import (
+    create_task, explain_record, inspect_record, list_history,
+)
 from cfd_memo_agent.validator import validate_case
 from cfd_memo_agent.validator.foam import read_json
 from cfd_memo_agent.validator.task import issue, new_report
@@ -38,6 +44,28 @@ from cfd_memo_agent.validator.task import issue, new_report
 def main() -> None:
     parser = argparse.ArgumentParser(description="CFD-Memo Agent utilities")
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    new_parser = subparsers.add_parser(
+        "new", help="Create and save a reviewed task without running CFD")
+    new_parser.add_argument("description", help="Natural language CFD task description")
+    new_parser.add_argument("--output", "-o", type=Path,
+                            help="Task JSON path; defaults to the local task workspace")
+    new_parser.add_argument("--fallback", choices=("stop", "rules"), default="stop")
+    new_parser.add_argument("--tutorial-index", type=Path)
+
+    inspect_parser = subparsers.add_parser(
+        "inspect", help="Show one task or workflow through a unified status view")
+    inspect_parser.add_argument("path", type=Path, help="Task JSON, episode JSON, or workflow directory")
+
+    history_parser = subparsers.add_parser(
+        "history", help="List recent workflow records without browsing internal folders")
+    history_parser.add_argument("--runs-dir", type=Path)
+    history_parser.add_argument("--limit", type=int, default=20)
+    history_parser.add_argument("--status")
+
+    explain_parser = subparsers.add_parser(
+        "explain", help="Explain one task or workflow record in beginner-oriented Chinese")
+    explain_parser.add_argument("path", type=Path, help="Task JSON, episode JSON, or workflow directory")
 
     plan_parser = subparsers.add_parser("plan", help="Convert text into a structured CFD task")
     plan_parser.add_argument("description", help="Natural language CFD task description")
@@ -144,6 +172,10 @@ def main() -> None:
                             help="Read existing history without learning from this evaluation task")
     run_parser.add_argument("--tutorial-index", type=Path,
                             help="Optional local OpenFOAM tutorial index for planning")
+    run_parser.add_argument("--preview", action="store_true",
+                            help="Show the frozen task, memory sources, and risks without running")
+    run_parser.add_argument("--confirm-plan",
+                            help="Task-bound confirmation token returned by --preview")
 
     diagnose_parser = subparsers.add_parser("diagnose", help="Diagnose an existing log without running commands")
     diagnose_parser.add_argument("--log", required=True, type=Path)
@@ -193,6 +225,27 @@ def main() -> None:
     memory_delete.add_argument("--memory-dir", required=True, type=Path)
     memory_delete.add_argument("--confirm", action="store_true",
                                help="Confirm permanent deletion of this local record")
+    memory_audit = memory_actions.add_parser(
+        "audit", help="Detect incompatible active experience records")
+    memory_audit.add_argument("--memory-dir", required=True, type=Path)
+    memory_resolve = memory_actions.add_parser(
+        "resolve", help="Resolve a conflict by explicitly choosing one experience")
+    memory_resolve.add_argument("preferred_id")
+    memory_resolve.add_argument("rejected_id")
+    memory_resolve.add_argument("--memory-dir", required=True, type=Path)
+    memory_resolve.add_argument("--note", required=True)
+    memory_acceptance = memory_actions.add_parser(
+        "acceptance", help="Evaluate real cross-task experience transfer")
+    memory_acceptance.add_argument("--manifest", required=True, type=Path)
+    memory_acceptance.add_argument("--memory-dir", required=True, type=Path)
+    memory_acceptance.add_argument("--output", type=Path)
+    memory_collect = memory_actions.add_parser(
+        "collect-transfer", help="Run an isolated real repair and reuse acceptance pair")
+    memory_collect.add_argument("--task", required=True, type=Path)
+    memory_collect.add_argument("--memory-dir", required=True, type=Path)
+    memory_collect.add_argument("--runs-dir", type=Path)
+    memory_collect.add_argument("--fault", choices=FAULTS, default="missing-boundary")
+    memory_collect.add_argument("--timeout", type=float, default=300.0)
 
     subparsers.add_parser("model-info", help="Show redacted Stage D model configuration")
 
@@ -201,11 +254,31 @@ def main() -> None:
     if args.command in {
         "plan", "generate", "run", "diagnose", "validate", "physics-study",
         "memory-study", "model-info", "import-case", "import-mesh", "capabilities",
-        "tutorials", "resume", "memory",
+        "tutorials", "resume", "memory", "new", "inspect", "history", "explain",
     }:
         for stream in (sys.stdout, sys.stderr):
             if hasattr(stream, "reconfigure"):
                 stream.reconfigure(encoding="utf-8")
+
+    if args.command in {"new", "inspect", "history", "explain"}:
+        try:
+            if args.command == "new":
+                result = create_task(
+                    args.description, output=args.output, fallback=args.fallback,
+                    tutorial_index_path=args.tutorial_index,
+                )
+            elif args.command == "inspect":
+                result = inspect_record(args.path)
+            elif args.command == "history":
+                result = list_history(args.runs_dir, limit=args.limit, status=args.status)
+            else:
+                result = explain_record(args.path)
+        except (OSError, UnicodeError, ValueError, KeyError, TypeError) as exc:
+            parser.error(str(exc))
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        if args.command == "new":
+            raise SystemExit(0 if result["status"] == "ready" else 1)
+        return
 
     if args.command == "model-info":
         try:
@@ -311,6 +384,19 @@ def main() -> None:
                     parser.error("memory delete 必须显式提供 --confirm")
                 manager.delete_experience(args.experience_id)
                 result = {"deleted": args.experience_id}
+            elif args.memory_action == "audit":
+                result = manager.audit_conflicts()
+            elif args.memory_action == "resolve":
+                result = manager.resolve_conflict(
+                    args.preferred_id, args.rejected_id, note=args.note)
+            elif args.memory_action == "acceptance":
+                result = evaluate_transfer_manifest(args.manifest, manager)
+                if args.output is not None:
+                    write_record(args.output, result)
+            elif args.memory_action == "collect-transfer":
+                result = run_real_transfer_study(
+                    args.task, memory_dir=args.memory_dir, runs_dir=args.runs_dir,
+                    fault=args.fault, timeout=args.timeout)
             else:
                 controls = {
                     "disable": {"state": "disabled"},
@@ -323,6 +409,10 @@ def main() -> None:
         except (OSError, UnicodeError, ValueError) as exc:
             parser.error(str(exc))
         print(json.dumps(result, ensure_ascii=False, indent=2))
+        if args.memory_action in {"acceptance", "collect-transfer"}:
+            raise SystemExit(0 if result["status"] == "passed" else 1)
+        if args.memory_action == "audit":
+            raise SystemExit(0 if result["status"] == "clear" else 1)
         return
 
     if args.command == "run":
@@ -335,6 +425,8 @@ def main() -> None:
             args.memory_mode != "no_memory" or args.memory_dir is not None or args.freeze_memory
         ):
             parser.error("--run 是 C4 单次执行，不接受长期记忆选项")
+        if args.run is not None and (args.preview or args.confirm_plan is not None):
+            parser.error("--preview/--confirm-plan 只用于从 task 启动的新工作流")
         if args.run is None and args.scenario is not None:
             parser.error("--scenario 仅用于 C4 的 --run；工作流故障演示请使用 --fault")
         if args.run is None and (
@@ -342,7 +434,27 @@ def main() -> None:
             or args.max_log_mb != 100
         ):
             parser.error("恢复与资源限制选项目前只用于 --run 单次真实执行")
+        if args.preview and args.task is None:
+            parser.error("--preview 需要 --task；先用 new 把自然语言冻结为任务")
+        if args.description is not None and args.runner == "real":
+            parser.error("真实执行必须先用 new 保存 task，再用 run --task --preview 核对")
+        if args.confirm_plan is not None and (args.task is None or args.runner != "real"):
+            parser.error("--confirm-plan 只用于 --task 的真实执行")
         try:
+            confirmed_preflight = None
+            if args.task is not None and (args.preview or args.runner == "real"):
+                preview = build_preflight(
+                    args.task, runner_mode=args.runner, memory_mode=args.memory_mode,
+                    memory_dir=args.memory_dir, max_corrections=args.max_corrections,
+                    timeout=args.timeout,
+                )
+                if args.preview:
+                    print(json.dumps(preview, ensure_ascii=False, indent=2))
+                    raise SystemExit(0 if preview["status"] == "ready" else 1)
+                if args.confirm_plan is None:
+                    print(json.dumps(preview, ensure_ascii=False, indent=2))
+                    raise SystemExit(1)
+                confirmed_preflight = confirm_preflight(preview, args.confirm_plan)
             if args.run is not None:
                 result = run_case(
                     args.run, mode=args.runner, scenario=args.scenario, timeout=args.timeout,
@@ -357,7 +469,8 @@ def main() -> None:
                                       memory_mode=args.memory_mode,
                                       memory_dir=args.memory_dir,
                                       memory_learning=not args.freeze_memory,
-                                      tutorial_index_path=args.tutorial_index)
+                                      tutorial_index_path=args.tutorial_index,
+                                      confirmed_preflight=confirmed_preflight)
         except (ValueError, OSError, ModelConfigurationError) as exc:
             parser.error(str(exc))
         print(json.dumps(result, ensure_ascii=False, indent=2))

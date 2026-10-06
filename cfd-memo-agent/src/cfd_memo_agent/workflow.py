@@ -12,12 +12,14 @@ from cfd_memo_agent.correction import FAULTS, apply_repairs, inject_fault, propo
 from cfd_memo_agent.diagnoser import diagnose_validation
 from cfd_memo_agent.generator import generate_case
 from cfd_memo_agent.memory import CaseCache, MemoryManager, save_episode
+from cfd_memo_agent.memory.embeddings import EmbeddingProvider
 from cfd_memo_agent.memory.episodes import write_record
 from cfd_memo_agent.models import ModelClient, ModelError, ModelSettings
 from cfd_memo_agent.orchestrator import (
     plan_description, planning_record, prepare_case_writing, review_evidence,
     task_file_planning_state,
 )
+from cfd_memo_agent.preflight import verify_confirmed_task
 from cfd_memo_agent.reporter import write_report
 from cfd_memo_agent.runner import run_case
 from cfd_memo_agent.validator import validate_task
@@ -28,7 +30,8 @@ PROJECT = Path(__file__).resolve().parents[2]
 
 
 def _options(description, task_path, mode, max_corrections, timeout, fault, planner_fallback,
-             memory_mode, memory_dir, memory_learning):
+             memory_mode, memory_dir, memory_learning, memory_embedding,
+             controlled_acceptance, confirmed_preflight):
     if (description is None) == (task_path is None):
         raise ValueError("需求与 task_path 必须二选一")
     if description is not None and not isinstance(description, str):
@@ -41,8 +44,12 @@ def _options(description, task_path, mode, max_corrections, timeout, fault, plan
         raise ValueError("max_corrections 必须为非负整数")
     if not finite(timeout) or timeout <= 0:
         raise ValueError("timeout 必须为有限正数")
-    if fault is not None and (fault not in FAULTS or mode != "simulated"):
-        raise ValueError("受控故障仅支持模拟模式下的 missing-boundary 或 bad-transport")
+    if fault is not None and (fault not in FAULTS
+                              or (mode != "simulated" and not controlled_acceptance)):
+        raise ValueError("受控故障仅支持模拟模式，真实模式只能由专用迁移验收流程启用")
+    if controlled_acceptance and (mode != "real" or task_path is None or fault is None
+                                  or memory_mode != "cfd_memo"):
+        raise ValueError("真实受控验收要求 task_path、real runner、cfd_memo 和受控故障")
     if planner_fallback not in {"stop", "rules"}:
         raise ValueError("planner_fallback 必须为 stop 或 rules")
     if memory_mode not in {"no_memory", "simple_cache", "retrieval_only", "cfd_memo"}:
@@ -51,16 +58,25 @@ def _options(description, task_path, mode, max_corrections, timeout, fault, plan
         raise ValueError("memory_dir 仅用于启用历史信息的模式")
     if not isinstance(memory_learning, bool):
         raise ValueError("memory_learning 必须为布尔值")
+    if memory_embedding is not None and memory_mode not in {"retrieval_only", "cfd_memo"}:
+        raise ValueError("memory_embedding 仅用于 retrieval_only 或 cfd_memo")
+    if confirmed_preflight is not None and (
+            task_path is None or not isinstance(confirmed_preflight, dict)):
+        raise ValueError("confirmed_preflight 只接受 task_path 对应的确认记录")
 
 
 def run_workflow(description=None, *, task_path=None, mode, runs_dir=None,
                  max_corrections=None, timeout=300, fault=None,
                  planner_fallback="stop", model_settings: ModelSettings | None = None,
                  model_client: ModelClient | None = None, memory_mode="no_memory",
-                 memory_dir=None, memory_learning=True, tutorial_index_path=None) -> dict:
+                 memory_dir=None, memory_learning=True, tutorial_index_path=None,
+                 memory_embedding: EmbeddingProvider | None = None,
+                 controlled_acceptance: bool = False,
+                 confirmed_preflight: dict | None = None) -> dict:
     """Run C1-C4, optionally repair supported fields, and persist an episode."""
     _options(description, task_path, mode, max_corrections, timeout, fault,
-             planner_fallback, memory_mode, memory_dir, memory_learning)
+             planner_fallback, memory_mode, memory_dir, memory_learning, memory_embedding,
+             controlled_acceptance, confirmed_preflight)
     parent = Path(runs_dir).resolve() if runs_dir is not None else PROJECT / "cases/runs"
     template = (PROJECT / "cases/templates").resolve()
     if parent == template or template in parent.parents:
@@ -71,7 +87,7 @@ def run_workflow(description=None, *, task_path=None, mode, runs_dir=None,
     cache = None
     memory_root = Path(memory_dir).resolve() if memory_dir is not None else PROJECT / "cases/memory"
     if memory_mode in {"retrieval_only", "cfd_memo"}:
-        manager = MemoryManager(memory_root)
+        manager = MemoryManager(memory_root, embedding=memory_embedding)
     elif memory_mode == "simple_cache":
         cache = CaseCache(memory_root)
     start = time.monotonic()
@@ -101,6 +117,7 @@ def run_workflow(description=None, *, task_path=None, mode, runs_dir=None,
             "experience_ids": [], "preventive_files": [],
         },
         "status": "failed", "physical_validated": False,
+        "preflight": deepcopy(confirmed_preflight),
         "started_at": datetime.now(timezone.utc).isoformat(), "workflow_path": str(root),
         "episode_path": str(root / "episode.json"), "report_path": str(root / "report.md"),
         "max_corrections": max_corrections if max_corrections is not None else 2,
@@ -121,6 +138,8 @@ def run_workflow(description=None, *, task_path=None, mode, runs_dir=None,
             "archived_episode_path": None, "learning_enabled": memory_learning,
             "cache_key": None, "cache_hit": False, "cached_case_path": None,
         }
+    if confirmed_preflight is not None:
+        write_record(root / "preflight.json", confirmed_preflight)
 
     def finish(status, code, message):
         episode["status"] = status
@@ -153,8 +172,9 @@ def run_workflow(description=None, *, task_path=None, mode, runs_dir=None,
                 episode["reflection"]["reusable_rules"] = [
                     "候选：有效任务支持的边界或黏度字段，可从可信配置恢复并重新验证。"]
         if manager is not None:
-            if memory_learning and memory_mode == "cfd_memo":
-                manager.record_use_outcomes(episode)
+            persist_memory = memory_learning and memory_mode == "cfd_memo"
+            manager.record_use_outcomes(episode, persist=persist_memory)
+            if persist_memory:
                 learned = manager.learn_from_episode(episode)
             else:
                 learned = {"experience_ids": [], "procedure_ids": []}
@@ -242,6 +262,7 @@ def run_workflow(description=None, *, task_path=None, mode, runs_dir=None,
         else:
             source["raw_text"] = Path(task_path).read_text(encoding="utf-8-sig")
             task = parse_json(source["raw_text"])
+            verify_confirmed_task(task, confirmed_preflight)
             write_record(root / "planning.json", episode["planning"])
     except (OSError, UnicodeError, ValueError, ArithmeticError, RecursionError, ModelError) as exc:
         write_record(root / "input.json", source)

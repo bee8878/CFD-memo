@@ -4,12 +4,15 @@ from __future__ import annotations
 from html import escape
 from pathlib import Path
 
+from .summary import build_report_summary, write_report_summary
+
 
 def _text(value):
     return escape(str(value)).replace("|", "&#124;").replace("\n", "<br>")
 
 
 def write_report(path: Path, episode: dict) -> None:
+    summary = build_report_summary(episode)
     status_names = {"simulated_success": "模拟流程完成", "completed": "命令执行完成",
                     "proposal_ready": "教程参考提案已生成",
                     "failed": "失败", "blocked": "被阻止", "timeout": "超时",
@@ -41,8 +44,40 @@ def write_report(path: Path, episode: dict) -> None:
         f"- 修正次数：{episode['diagnosis']['correction_count']} / {episode['max_corrections']}",
         f"- 总耗时：{episode['metrics']['elapsed_seconds']:.3f} 秒",
         f"- 停止原因：{_text(episode['stop_reason']['message'])}", "",
-        "## 输入与任务", "",
+        "## 一页结论", "",
+        "### 做了什么", "",
+        _text(summary["task"]["objective"]), "",
+        f"- task：{_text(summary['task']['task_id'] or '未形成')}；"
+        f"场景：{_text(summary['task']['case_type'] or '未知')}；"
+        f"求解器：{_text(summary['task']['solver'] or '未知')}", "",
+        "### 是否运行完成", "",
+        ("已完成。" if summary["execution"]["completed"] else "未完成。")
+        + "状态：" + _text(summary["execution"]["status_label"])
+        + "；停止原因：" + _text(summary["execution"]["stop_reason"]["message"]), "",
+        "### 物理结果是否可信", "",
+        ("已通过本任务的物理验收。" if summary["physical_result"]["validated"]
+         else "尚未证明物理结果可信。")
+        + _text(summary["physical_result"]["explanation"]), "",
+        "### 经验起了什么作用", "",
+        _text(summary["memory_contribution"]["conclusion"]),
     ]
+    if summary["memory_contribution"]["effective_experience_ids"]:
+        lines.append("- 有效经验：" + "、".join(
+            _text(item) for item in summary["memory_contribution"]["effective_experience_ids"]
+        ))
+    if summary["memory_contribution"]["prevented_files"]:
+        lines.append("- 防止重复错误的文件：" + "、".join(
+            _text(item) for item in summary["memory_contribution"]["prevented_files"]
+        ))
+    lines.extend(["", "### 下一步", ""])
+    lines.extend("- " + _text(item) for item in summary["next_steps"])
+    lines.extend([
+        "", "### 输出位置", "",
+        "- episode：" + _text(summary["outputs"]["episode"] or "未保存"),
+        "- 结构化摘要：" + _text(summary["outputs"]["summary"] or "未保存"),
+        "- case：" + _text(summary["outputs"]["case"] or "未生成"), "",
+        "## 输入与任务", "",
+    ])
     source = episode["input"]
     lines.append("输入类型：" + source["kind"])
     if source["description"] is not None:
@@ -183,6 +218,24 @@ def write_report(path: Path, episode: dict) -> None:
             f"实际引用 {len(memory['uses'])} 条，本轮学习 "
             f"{len(memory['learned_experience_ids'])} 条。"
         )
+    preflight = episode.get("preflight")
+    if preflight:
+        lines.extend(["", "## 执行前确认", ""])
+        lines.append("- 任务指纹：" + _text(preflight["task_sha256"]))
+        lines.append("- 确认时间：" + _text(preflight["confirmation"]["confirmed_at"]))
+        lines.append("- 执行模式：" + _text(preflight["runner_mode"]))
+        for key, value in preflight["parameters"].items():
+            lines.append(f"- 参数 {_text(key)}：{_text(value)}")
+        for assumption in preflight["assumptions"]:
+            lines.append("- 规划假设：" + _text(assumption))
+        for experience in preflight["memory"]["experiences"]:
+            lines.append(
+                "- 执行前经验：" + _text(experience["experience_id"])
+                + "；可信等级 " + _text(experience["trust_level"])
+            )
+        for risk in preflight["risks"]:
+            lines.append("- 已确认风险：" + _text(risk["message"]))
     lines.append("")
     with path.open("x", encoding="utf-8") as handle:
         handle.write("\n".join(lines))
+    write_report_summary(path.with_name("report-summary.json"), episode)

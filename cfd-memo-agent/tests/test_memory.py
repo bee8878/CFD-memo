@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from cfd_memo_agent.memory import MemoryManager
+from cfd_memo_agent.memory import CallableEmbeddingProvider, MemoryManager
 from cfd_memo_agent.memory.episodes import episode_validator
 from cfd_memo_agent.validator.foam import read_json
 from cfd_memo_agent.workflow import run_workflow
@@ -58,6 +58,12 @@ def test_structured_memory_survives_restart_and_is_cited_by_reviewer(tmp_path):
         "planner", "case_writer",
     }
     assert all(
+        retrieval["embedding_provider"] == "local-hashing"
+        and retrieval["embedding_version"]
+        and all(match["reasons"] for match in retrieval["matches"])
+        for retrieval in second["memory"]["retrievals"]
+    )
+    assert all(
         match["vector_score"] >= 0 and match["confidence"] > 0
         for retrieval in second["memory"]["retrievals"]
         for match in retrieval["matches"]
@@ -71,6 +77,12 @@ def test_structured_memory_survives_restart_and_is_cited_by_reviewer(tmp_path):
     assert second["rounds"][0]["status"] == "simulated_success"
     assert second["corrections"] == []
     assert len(read_json(knowledge_path)["evidence"]) == 1
+    assert all(item["outcome"] == "effective" for item in second["memory"]["uses"])
+    assert all(item["outcome_episode_id"] == second["episode_id"]
+               for item in second["memory"]["uses"])
+    history = read_json(knowledge_path)["usage_history"]
+    assert {item["agent"] for item in history} == {"planner", "case_writer"}
+    assert all(item["outcome"] == "effective" for item in history)
     episode_validator().validate(second)
 
 
@@ -96,6 +108,59 @@ def test_vector_retrieval_understands_boundary_language_and_reynolds(tmp_path):
     assert matches[0]["experience_id"] == experience_id
     assert matches[0]["retrieval_score"]["vector"] > 0
     assert matches[0]["retrieval_score"]["reynolds"] == 0.5
+    assert matches[0]["retrieval_reason"]["matched_problem_codes"] == []
+    assert "算例、求解器、流动模型和维度完全匹配" in (
+        matches[0]["retrieval_reason"]["summary"])
+
+
+def test_memory_accepts_replaceable_embedding_provider(tmp_path):
+    store = tmp_path / "memory"
+    trained = run_workflow(
+        "做 Re=100 的二维圆柱绕流", mode="simulated", fault="missing-boundary",
+        runs_dir=tmp_path / "train", memory_mode="cfd_memo", memory_dir=store,
+    )
+    task = trained["task"]
+    provider = CallableEmbeddingProvider(
+        "test-dense", "fixture-v1", lambda text: [1.0, float("入口" in text)],
+    )
+    manager = MemoryManager(store, embedding=provider)
+
+    matches = manager.retrieve(
+        task, problem_codes=["BOUNDARY_NAMES"], query_text="入口边界",
+        stage="reviewer",
+    )
+
+    assert matches
+    assert matches[0]["retrieval_score"]["semantic"] > 0
+    retrieval = manager.working["retrievals"][0]
+    assert retrieval["embedding_provider"] == "test-dense"
+    assert retrieval["embedding_version"] == "fixture-v1"
+    assert retrieval["matches"][0]["reasons"]
+
+    evaluated = run_workflow(
+        "做 Re=200 的二维圆柱绕流，入口速度=2，D=1",
+        mode="simulated", fault="missing-boundary", runs_dir=tmp_path / "evaluate",
+        memory_mode="cfd_memo", memory_dir=store, memory_learning=False,
+        memory_embedding=provider,
+    )
+    assert evaluated["memory"]["retrievals"]
+    assert all(item["embedding_provider"] == "test-dense"
+               for item in evaluated["memory"]["retrievals"])
+    assert all(item["outcome"] == "effective" for item in evaluated["memory"]["uses"])
+
+
+def test_memory_rejects_invalid_custom_similarity(tmp_path):
+    class BadProvider:
+        name = "bad"
+        version = "v1"
+
+        @staticmethod
+        def similarity(query, document):
+            return float("nan")
+
+    manager = MemoryManager(tmp_path / "memory", embedding=BadProvider())
+    with pytest.raises(ValueError, match="0 到 1"):
+        manager._semantic_similarity("query", "document")
 
 
 def test_repeated_failed_reuse_downweights_experience(tmp_path):
@@ -167,6 +232,8 @@ def test_retrieval_only_uses_reviewer_but_does_not_learn_or_prevent(tmp_path):
     assert evaluated["planning"]["experience_ids"] == []
     assert evaluated["case_writing"]["experience_ids"] == []
     assert evaluated["reviews"][0]["experience_ids"] == [experience_id]
+    assert evaluated["memory"]["uses"][0]["outcome"] == "effective"
+    assert evaluated["memory"]["uses"][0]["outcome_episode_id"] == evaluated["episode_id"]
     assert [item["stage"] for item in evaluated["memory"]["retrievals"]] == ["reviewer"]
     assert len(evaluated["rounds"]) == 2 and len(evaluated["corrections"]) == 1
     assert evaluated["memory"]["learned_experience_ids"] == []

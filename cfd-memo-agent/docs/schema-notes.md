@@ -74,6 +74,15 @@ reflection 来自证据与规则，reusable_rules 只是候选建议；
 
 保存 episode 前使用仓库同一份 Draft 2020-12 schema 验证。
 逐轮记录使用独立文件及时落盘，最终 episode 和中文报告汇总全过程。
+
+L2 增加可选 `preflight`：保存执行前冻结的 task SHA-256、参数、Planner 假设与
+待确认问题、验证提示、经验来源、风险和确认时间。确认码本身由 task 与执行选项
+确定性生成；episode 只接受已确认记录。旧 episode 没有该字段时仍然有效。
+
+L3 增加 `schemas/report-summary.schema.json`。每个新 workflow 在 `report.md` 之外
+生成 `report-summary.json`，固定包含 task、执行状态、物理可信度、经验贡献、输出
+索引和下一步。它是 episode 证据的只读派生结果，不反向修改 episode，也不会把
+检索但未采用的经验标为有效贡献。
 本阶段不实现崩溃续跑、向量检索或跨任务知识提炼。
 
 ## C6 真实执行证据
@@ -101,9 +110,16 @@ Episodes are archived under the local memory store in `episodes/`. E1-E2 also de
 `experience.schema.json` for compact repair knowledge and `procedure.schema.json` for verified
 steps. Experience schema v2 records hashed source artifacts, user controls and the machine-derived
 levels `candidate`, `config_verified`, `run_verified`, and `physics_verified`. Episode v3 records
-Planner/Case Writer/Reviewer experience IDs, vector retrieval scores, confidence-backed uses, and
-run-before prevention evidence. User approval is separate from verification level and cannot turn
-model reflection into run or physics evidence.
+Planner/Case Writer/Reviewer experience IDs, embedding provider/version, semantic and structured
+score components, retrieval reasons, citation decisions and `pending/effective/ineffective`
+outcomes. Experience `usage_history` persists the resulting decision trail. User approval is
+separate from verification level and cannot turn model reflection into run or physics evidence.
+
+Experience schema v3 adds monotonic `revision`/`revision_history`, `conflict_state`, and peer
+conflict records. Revision details are represented by SHA-256 rather than copied file bodies.
+Conflicted experiences are excluded from retrieval until an explicit preferred/rejected decision
+resolves the pair. Existing v1/v2 records are migrated in memory and written as v3 on their next
+authorized update.
 
 ## I4 教程批准续跑
 

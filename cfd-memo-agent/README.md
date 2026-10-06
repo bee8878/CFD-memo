@@ -16,6 +16,60 @@ This project is a local engineering prototype for a memory-enhanced CFD agent. I
 The current machine has the fixed C6 OpenFOAM backend. Sample logs remain
 available only for explicit simulated tests.
 
+## L1：任务工作台
+
+初学者不需要先寻找内部目录。下面四个命令负责创建任务、查看状态、查找历史和解释证据：
+
+```powershell
+# 只创建并保存任务，不运行 OpenFOAM
+.\.venv\Scripts\python.exe -m cfd_memo_agent.cli new `
+  "做 Re=100 的二维圆柱绕流，入口速度=1，D=1"
+
+# path 可以是 task.json、episode.json 或整个 workflow 目录
+.\.venv\Scripts\python.exe -m cfd_memo_agent.cli inspect "<path>"
+.\.venv\Scripts\python.exe -m cfd_memo_agent.cli explain "<path>"
+
+# 最近记录；可增加 --status completed 或 --limit 5
+.\.venv\Scripts\python.exe -m cfd_memo_agent.cli history
+```
+
+`new` 会保存经过验证的 task JSON 和对应的 `.plan.json`，不会生成 case 或调用
+OpenFOAM；已有目标文件不会被覆盖。`inspect` 对 task 和 episode 使用同一状态格式，
+并统一给出 task、报告、case 和日志索引。`explain` 特别区分“命令执行完成”和
+“物理结果已验证”，然后给出下一条建议操作。现有 `run` 与 `resume` 继续负责实际
+执行和安全恢复。
+
+真实执行必须先预览并确认。预览不会创建 workflow，也不会运行 OpenFOAM：
+
+```powershell
+$preview = .\.venv\Scripts\python.exe -m cfd_memo_agent.cli run `
+  --task "cases\tasks\<task>.json" --runner real --preview | ConvertFrom-Json
+
+$preview.parameters
+$preview.assumptions
+$preview.memory.experiences
+$preview.risks
+
+.\.venv\Scripts\python.exe -m cfd_memo_agent.cli run `
+  --task "cases\tasks\<task>.json" --runner real `
+  --confirm-plan $preview.confirmation_token
+```
+
+确认码绑定 task 内容、runner、超时、修正预算、记忆模式、记忆库位置和检索到的
+经验编号。确认后修改 task 或上述执行选项，旧确认码就会失效。自然语言不能直接
+进入真实 runner；应先用 `new` 冻结为 task。确认记录会保存为 workflow 内的
+`preflight.json`，并写入 episode 和中文报告。模拟运行仍可直接使用，不强制确认。
+
+每次工作流结束会同时生成：
+
+- `report.md`：最前面用五个固定问题给出一页结论，后面保留逐轮证据。
+- `report-summary.json`：供 `inspect`、实验统计或后续 Agent 读取的结构化摘要。
+
+五个问题分别是：做了什么、是否运行完成、物理结果是否可信、经验起了什么作用、
+下一步做什么。经验只有在保存了有效 outcome 或实际防错记录时才会被列为有效贡献；
+仅检索但没有采用的经验不会被宣称为成功因素。`inspect <workflow>` 的
+`outputs.summary` 可直接定位结构化摘要。
+
 ## H1：CaseSpec、能力注册表与已有 case 导入
 
 阶段 H 的第一版把“任务是什么”和“程序会什么”从圆柱模板中分离出来：
@@ -390,6 +444,32 @@ python -m cfd_memo_agent.cli memory delete <experience-id> --memory-dir cases/me
 ~~~
 
 批准只记录用户意见，不改变机器验证等级；停用后的经验不会进入 Agent 提示。
+
+K2 将相似度计算抽象为 `EmbeddingProvider`。默认 `local-hashing` 完全离线且可复现；
+Python 调用方可通过 `CallableEmbeddingProvider` 接入明确选择的本地或托管 embedding。
+episode 会保存提供者/版本、硬过滤条件、各项分数、中文命中原因，以及经验具体影响了
+哪个 Agent 决策。工作流结束后，引用结果标记为 `effective` 或 `ineffective` 并写回
+经验的 `usage_history`。默认不会把任务文字发送给外部服务。
+
+K3 增加经验冲突与修订追踪。相同适用条件和问题代码若对应不同修正动作，`memory audit`
+会将双方标为 `conflicted`，在人工选择前都不会进入 Agent。`memory resolve` 显式保留一条
+并停用另一条。`memory acceptance` 使用 manifest 检查真实跨任务迁移，强制要求真实 runner、
+`run_verified` 证据、不同任务和更少修正次数；模拟 episode 不能通过。
+
+~~~powershell
+python -m cfd_memo_agent.cli memory audit --memory-dir cases/memory
+python -m cfd_memo_agent.cli memory resolve <保留ID> <停用ID> `
+  --memory-dir cases/memory --note "选择依据"
+python -m cfd_memo_agent.cli memory acceptance `
+  --manifest acceptance.json --memory-dir cases/memory --output acceptance-result.json
+python -m cfd_memo_agent.cli memory collect-transfer `
+  --task examples/task.cylinder-2d.json `
+  --memory-dir cases/runs/k3c-memory --runs-dir cases/runs/k3c-acceptance
+~~~
+
+`collect-transfer` 只修改新建运行副本，强制使用 rules provider，不产生模型 token 费用。
+本地 Re=100 → Re=120 真实验收已通过：来源修正 1 次，目标通过经验 prevention 将修正降为
+0 次，经验为 `run_verified`。该结果不等于物理准确性验证。
 
 ## G：配置记忆对比实验
 

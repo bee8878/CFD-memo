@@ -210,16 +210,20 @@ C5/E 输出到 `cases/runs/workflow-<唯一编号>/`：input、task 检查、可
 
 - [x] K1 从 episode/attempt 提炼经验，保存适用条件、修改动作和带 SHA-256 的来源证据；建立 `candidate`、`config_verified`、`run_verified`、`physics_verified` 四级可信度，模型反思和用户批准均不能直接升级机器验证等级。
 - [x] K1 增加 `memory extract/list/approve/reject/enable/disable/delete` 入口；停用经验不参与检索，连续失败仍会自动降回 candidate。旧版无哈希 `verified` 记录按 candidate 读取，避免继承过度声明。
-- [ ] K2 保留结构化过滤，增加可替换语义 embedding；记录经验为什么被检索、怎样影响决策及使用后是否有效。
-- [ ] K3 增加冲突检测、修订历史和面向真实失败的跨任务验收集。
+- [x] K2 保留结构化硬过滤并增加可替换 `EmbeddingProvider`；默认离线 hashing，可注入本地或托管 dense embedding。episode 记录提供者/版本、分数组成、命中原因、Agent 决策与最终有效性，经验库持久化 `usage_history`。
+- [x] K3a 增加经验冲突检测与显式解决：相同适用条件/问题代码却给出不同动作时，双方停止检索；用户选择保留项后，另一项停用。
+- [x] K3b 增加递增修订历史及真实跨任务验收 manifest/CLI；验收强制检查真实 runner、来源修正后完成、不同任务、`run_verified` 经验有效引用和目标修正次数减少，模拟记录不能通过。
+- [x] K3c 新增隔离的 `memory collect-transfer` 采集命令，并完成一对真实 OpenFOAM 验收：来源 Re=100 在边界配置失败后修正 1 次并完成，经验达到 `run_verified`；目标 Re=120 引用该经验，在首次真实执行前留下 prevention，修正次数降为 0。七项迁移检查全部通过；两次运行均使用 rules provider，无 token 费用。
 
 **验收：** 真实失败形成的经验能在相似新任务中被引用并减少试错；错误经验可追踪、降权和撤销；重启后仍可复用。
 
+K2 已通过默认与自定义 embedding、无效向量拒绝、三 Agent 引用结果回写及重启后记录读取测试。K3 的冲突、修订、真实采集和跨任务验收已完成；该实验只证明配置经验减少一次受控重复试错，`physical_validated=false`，不代表物理精度验证。下一步进入 L 阶段。
+
 ### L：面向用户的任务工作台
 
-- 整理 `new`、`inspect`、`run`、`resume`、`history`、`explain` 命令，统一任务状态和输出索引。
-- 执行前展示计划、默认参数、经验来源和潜在风险；缺少关键物理条件时先请求确认。
-- 报告同时回答：做了什么、是否运行完成、物理结果是否可信、使用了哪些经验、用户下一步能做什么。
+- [x] L1 增加 `new`、`inspect`、`history`、`explain`，并与现有 `run`、`resume` 组成用户工作台；统一任务状态、物理验证状态、经验引用和 task/report/case/log 输出索引。
+- [x] L2 为 task 真实执行增加 `--preview` 与任务绑定确认码：展示参数、Planner 假设/问题、验证提示、经验可信等级与来源、物理/网格/环境风险；问题未解决时禁止确认。确认码同时绑定 task SHA-256、runner、timeout、修正预算、记忆配置和经验集合，内容变化后失效；workflow 在生成 case 前复核并保存 `preflight.json`。
+- [x] L3 统一生成 `report.md` 与经过 schema 验证的 `report-summary.json`：固定回答做了什么、是否运行完成、物理结果是否可信、经验是否产生有效贡献和下一步操作；详细轮次与日志仍保留。只有有效 outcome 或 prevention 才归因于经验，单纯检索不冒充贡献；工作台输出索引可直接定位摘要。
 
 **验收：** 新用户只依据 README 即可导入或创建任务、确认计划、运行、恢复失败任务并找到结果，不需要理解内部目录结构。
 
@@ -256,4 +260,4 @@ J2 已完成外部 Gmsh 的受控导入与真实执行：导入器限制为 2.2 
 
 J3 已完成阶段级安全恢复和资源保护：真实 attempt 原子保存 `stage-state.json`，网格阶段保存带 SHA-256 的 checkpoint；恢复总是创建新 attempt，核对原始输入、执行计划和 checkpoint，复用 `blockMesh/gmshToFoam` 后强制重跑 `checkMesh`。命令保留超时与进程组清理，并增加运行前磁盘空间、单日志大小限制。`result-index.json` 给输入、状态、日志、证据和最终场文件建立完整性索引。真实 Gmsh 验收先在 `checkMesh` 超时，随后从 `gmshToFoam` checkpoint 恢复并运行至 `t=10`，原失败 attempt 保持不变。
 
-下一步进入 K1：只从真实 episode/attempt 提炼带来源证据和适用条件的候选经验，建立 `candidate -> config_verified -> run_verified -> physics_verified` 可信度状态，禁止模型反思自行升级可信级别。
+K1-K3 已完成证据化经验、可信度、冲突处理和真实跨任务复用验收。L1-L3 已完成任务工作台、真实执行前确认和统一结果报告，L 阶段完成。下一步进入 M1：冻结跨任务评估协议与任务数据集，先形成至少三个任务族、两个求解器和 30 个不同任务规格的可审计清单，再运行正式对比实验。

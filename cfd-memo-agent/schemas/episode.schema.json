@@ -159,6 +159,54 @@
       "additionalProperties": false
     },
     "physical_validated": { "const": false },
+    "preflight": {
+      "type": ["object", "null"],
+      "required": ["schema_version", "status", "task_path", "task_id", "task_sha256",
+                   "runner_mode", "parameters", "assumptions", "questions",
+                   "validation_errors", "validation_warnings", "memory", "risks",
+                   "confirmation_required", "confirmation_token", "confirmation", "next_action"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "status": { "enum": ["ready", "needs_input"] },
+        "task_path": { "type": "string" },
+        "task_id": { "type": ["string", "null"] },
+        "task_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "runner_mode": { "enum": ["simulated", "real"] },
+        "parameters": { "type": "object" },
+        "plan_path": { "type": ["string", "null"] },
+        "assumptions": { "type": "array", "items": { "type": "string" } },
+        "questions": { "type": "array", "items": { "type": "string" } },
+        "validation_errors": { "type": "array", "items": { "$ref": "#/$defs/finding" } },
+        "validation_warnings": { "type": "array", "items": { "$ref": "#/$defs/finding" } },
+        "memory": { "type": "object" },
+        "risks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": {
+              "code": { "type": "string" },
+              "message": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "confirmation_required": { "type": "boolean" },
+        "confirmation_token": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "confirmation": {
+          "type": ["object", "null"],
+          "required": ["confirmed", "confirmed_at", "token_sha256"],
+          "properties": {
+            "confirmed": { "const": true },
+            "confirmed_at": { "type": "string" },
+            "token_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+          },
+          "additionalProperties": false
+        },
+        "next_action": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
     "started_at": { "type": "string" },
     "workflow_path": { "type": "string" },
     "episode_path": { "type": "string" },
@@ -319,23 +367,30 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["stage", "query", "vector_version", "matches"],
+            "required": ["stage", "query", "vector_version", "embedding_provider",
+                         "embedding_version", "matches"],
             "properties": {
               "stage": { "enum": ["planner", "case_writer", "reviewer"] },
               "query": { "type": "string" },
               "vector_version": { "type": "string" },
+              "embedding_provider": { "type": "string", "minLength": 1 },
+              "embedding_version": { "type": "string", "minLength": 1 },
               "matches": {
                 "type": "array",
                 "items": {
                   "type": "object",
-                  "required": ["experience_id", "vector_score", "reynolds_score",
-                               "confidence", "final_score"],
+                  "required": ["experience_id", "vector_score", "semantic_score",
+                               "reynolds_score", "confidence", "final_score", "reasons"],
                   "properties": {
                     "experience_id": { "type": "string" },
                     "vector_score": { "type": "number", "minimum": 0, "maximum": 1 },
+                    "semantic_score": { "type": "number", "minimum": 0, "maximum": 1 },
                     "reynolds_score": { "type": "number", "minimum": 0, "maximum": 1 },
                     "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
-                    "final_score": { "type": "number", "minimum": 0, "maximum": 1 }
+                    "final_score": { "type": "number", "minimum": 0, "maximum": 1 },
+                    "reasons": {
+                      "type": "array", "minItems": 1, "items": { "type": "string" }
+                    }
                   },
                   "additionalProperties": false
                 }
@@ -348,13 +403,16 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["experience_id", "agent", "round_index", "decision", "effect"],
+            "required": ["experience_id", "agent", "round_index", "decision", "effect",
+                         "outcome", "outcome_episode_id"],
             "properties": {
               "experience_id": { "type": "string" },
               "agent": { "enum": ["planner", "case_writer", "reviewer"] },
               "round_index": { "type": "integer", "minimum": 0 },
               "decision": { "type": "string" },
-              "effect": { "type": "string" }
+              "effect": { "type": "string" },
+              "outcome": { "enum": ["pending", "effective", "ineffective"] },
+              "outcome_episode_id": { "type": ["string", "null"] }
             },
             "additionalProperties": false
           }

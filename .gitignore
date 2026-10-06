@@ -46,6 +46,9 @@ exports/
 cfd-memo-agent/cases/runs/*
 !cfd-memo-agent/cases/runs/sample-logs/
 
+# Local workbench tasks may contain user descriptions
+cfd-memo-agent/cases/tasks/
+
 # Local learned memory and archived episodes
 cfd-memo-agent/cases/memory/
 

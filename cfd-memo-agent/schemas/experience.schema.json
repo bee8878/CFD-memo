@@ -5,9 +5,10 @@
   "type": "object",
   "required": ["schema_version", "experience_id", "record_type", "status",
                "problem_codes", "applicability", "action", "evidence",
-               "verification_scope", "trust", "user_control", "created_at", "updated_at"],
+               "verification_scope", "trust", "user_control", "revision",
+               "revision_history", "conflict_state", "conflicts", "created_at", "updated_at"],
   "properties": {
-    "schema_version": { "const": 2 },
+    "schema_version": { "const": 3 },
     "experience_id": { "type": "string", "pattern": "^exp-[a-f0-9]{16}$" },
     "record_type": { "const": "repair_knowledge" },
     "status": {
@@ -102,6 +103,59 @@
         "updated_at": { "type": "string" }
       },
       "additionalProperties": false
+    },
+    "usage_history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["episode_id", "agent", "round_index", "decision", "effect",
+                     "outcome", "recorded_at"],
+        "properties": {
+          "episode_id": { "type": "string" },
+          "agent": { "enum": ["planner", "case_writer", "reviewer"] },
+          "round_index": { "type": "integer", "minimum": 0 },
+          "decision": { "type": "string" },
+          "effect": { "type": "string" },
+          "outcome": { "enum": ["effective", "ineffective"] },
+          "recorded_at": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "revision": { "type": "integer", "minimum": 1 },
+    "revision_history": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["revision", "event", "at", "source_episode_id", "details_sha256"],
+        "properties": {
+          "revision": { "type": "integer", "minimum": 1 },
+          "event": {
+            "enum": ["created", "evidence_merged", "trust_updated",
+                     "user_control_updated", "conflict_detected", "conflict_resolved"]
+          },
+          "at": { "type": "string" },
+          "source_episode_id": { "type": ["string", "null"] },
+          "details_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "conflict_state": { "enum": ["clear", "conflicted"] },
+    "conflicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["experience_id", "reason", "status", "detected_at", "resolved_at"],
+        "properties": {
+          "experience_id": { "type": "string" },
+          "reason": { "type": "string" },
+          "status": { "enum": ["active", "resolved"] },
+          "detected_at": { "type": "string" },
+          "resolved_at": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      }
     },
     "created_at": { "type": "string" },
     "updated_at": { "type": "string" }

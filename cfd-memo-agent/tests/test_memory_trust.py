@@ -5,6 +5,7 @@ import subprocess
 import sys
 
 from cfd_memo_agent.memory import MemoryManager
+from cfd_memo_agent.memory.transfer import evaluate_transfer, evaluate_transfer_manifest
 from cfd_memo_agent.validator.foam import read_json
 
 
@@ -13,7 +14,8 @@ def _save(path: Path, value):
     path.write_text(json.dumps(value), encoding="utf-8")
 
 
-def _evidence_episode(tmp_path, *, physical=False, tampered=False):
+def _evidence_episode(tmp_path, *, physical=False, tampered=False,
+                      change_file="0/U", episode_id="episode-trust", task_id="task-trust"):
     run = tmp_path / "run"
     attempt = run / "attempts" / "attempt-a"
     validation_path = attempt / "validation.json"
@@ -50,12 +52,13 @@ def _evidence_episode(tmp_path, *, physical=False, tampered=False):
     if tampered:
         execution_path.write_text("tampered", encoding="utf-8")
     task = {
-        "task_id": "task-trust", "case_type": "cylinder-2d", "solver": "icoFoam",
+        "task_id": task_id, "case_type": "cylinder-2d", "solver": "icoFoam",
         "geometry": {"dimension": "2D"},
         "physics": {"flow_model": "incompressible_laminar", "reynolds_number": 100},
     }
     return {
-        "episode_id": "episode-trust", "runner_mode": "real", "task": task,
+        "episode_id": episode_id, "task_id": task_id, "runner_mode": "real",
+        "status": "completed", "task": task,
         "reflection": {"reusable_rules": ["模型声称物理验证完成"]},
         "rounds": [{
             "index": 1, "run_path": str(run), "status": "completed", "config_valid": True,
@@ -64,7 +67,7 @@ def _evidence_episode(tmp_path, *, physical=False, tampered=False):
         }],
         "corrections": [{
             "from_round": 0, "to_round": 1, "reason_codes": ["BOUNDARY_MISSING"],
-            "changes": [{"file": "0/U"}],
+            "changes": [{"file": change_file}],
         }],
     }, task
 
@@ -142,10 +145,92 @@ def test_legacy_verified_record_is_migrated_to_untrusted_candidate(tmp_path):
 
     record = manager.get_experience("exp-0123456789abcdef")
 
-    assert record["schema_version"] == 2
+    assert record["schema_version"] == 3
     assert record["status"] == "candidate"
     assert not record["evidence"][0]["integrity_verified"]
     assert read_json(path)["schema_version"] == 1
+
+
+def test_conflicting_experiences_are_blocked_revised_and_resolved(tmp_path):
+    manager = MemoryManager(tmp_path / "memory")
+    first, task = _evidence_episode(
+        tmp_path / "first", change_file="0/U", episode_id="episode-u")
+    second, _ = _evidence_episode(
+        tmp_path / "second", change_file="0/p", episode_id="episode-p")
+    first_id = manager.learn_from_episode(first)["experience_ids"][0]
+    second_learned = manager.learn_from_episode(second)
+    second_id = second_learned["experience_ids"][0]
+
+    assert set(second_learned["conflict_ids"]) == {first_id, second_id}
+    left = manager.get_experience(first_id)
+    right = manager.get_experience(second_id)
+    assert left["conflict_state"] == right["conflict_state"] == "conflicted"
+    assert "conflict_detected" in {item["event"] for item in left["revision_history"]}
+    assert manager.retrieve(task, problem_codes=["BOUNDARY_MISSING"]) == []
+
+    resolution = manager.resolve_conflict(first_id, second_id, note="保留速度场修正规则")
+
+    assert resolution["preferred"]["conflict_state"] == "clear"
+    assert resolution["preferred"]["user_control"]["approved"]
+    assert resolution["rejected"]["user_control"]["state"] == "disabled"
+    assert manager.retrieve(task, problem_codes=["BOUNDARY_MISSING"])[0]["experience_id"] == first_id
+    revisions = resolution["preferred"]["revision_history"]
+    assert [item["revision"] for item in revisions] == list(range(1, len(revisions) + 1))
+
+
+def test_real_cross_task_transfer_acceptance_and_manifest(tmp_path):
+    manager = MemoryManager(tmp_path / "memory")
+    source, _ = _evidence_episode(
+        tmp_path / "source", episode_id="episode-source", task_id="task-source")
+    experience_id = manager.learn_from_episode(source)["experience_ids"][0]
+    source["memory"] = {"learned_experience_ids": [experience_id]}
+    target = {
+        "episode_id": "episode-target", "task_id": "task-target",
+        "task": {"task_id": "task-target"}, "runner_mode": "real", "status": "completed",
+        "corrections": [], "memory": {"uses": [{
+            "experience_id": experience_id, "outcome": "effective",
+        }]},
+    }
+
+    result = evaluate_transfer(source, target, manager)
+
+    assert result["status"] == "passed"
+    source_path = tmp_path / "source-episode.json"
+    target_path = tmp_path / "target-episode.json"
+    _save(source_path, source)
+    _save(target_path, target)
+    manifest = tmp_path / "manifest.json"
+    _save(manifest, {"schema_version": 1, "cases": [{
+        "case_id": "real-transfer", "source_episode": source_path.name,
+        "target_episode": target_path.name,
+    }]})
+    evaluated = evaluate_transfer_manifest(manifest, manager)
+    assert evaluated["status"] == "passed" and evaluated["case_count"] == 1
+    output = tmp_path / "acceptance-result.json"
+    cli = subprocess.run(
+        [sys.executable, "-m", "cfd_memo_agent.cli", "memory", "acceptance",
+         "--manifest", str(manifest), "--memory-dir", str(manager.root),
+         "--output", str(output)],
+        cwd=tmp_path, text=True, encoding="utf-8", capture_output=True, check=False,
+    )
+    assert cli.returncode == 0
+    assert read_json(output)["status"] == "passed"
+
+
+def test_transfer_acceptance_rejects_simulated_target(tmp_path):
+    manager = MemoryManager(tmp_path / "memory")
+    source, _ = _evidence_episode(tmp_path / "source")
+    experience_id = manager.learn_from_episode(source)["experience_ids"][0]
+    source["memory"] = {"learned_experience_ids": [experience_id]}
+    target = {"episode_id": "target", "task_id": "other", "runner_mode": "simulated",
+              "status": "simulated_success", "corrections": [],
+              "memory": {"uses": [{"experience_id": experience_id,
+                                     "outcome": "effective"}]}}
+
+    result = evaluate_transfer(source, target, manager)
+
+    assert result["status"] == "failed"
+    assert not next(item for item in result["checks"] if item["code"] == "TARGET_REAL")["passed"]
 
 
 def test_memory_cli_lists_and_disables_from_another_directory(tmp_path):
