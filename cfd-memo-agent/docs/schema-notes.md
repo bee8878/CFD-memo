@@ -83,6 +83,11 @@ L3 增加 `schemas/report-summary.schema.json`。每个新 workflow 在 `report.
 生成 `report-summary.json`，固定包含 task、执行状态、物理可信度、经验贡献、输出
 索引和下一步。它是 episode 证据的只读派生结果，不反向修改 episode，也不会把
 检索但未采用的经验标为有效贡献。
+
+M1 增加 `schemas/benchmark-manifest.schema.json` 和冻结的
+`experiments/cross-task-v1.json`。清单保存紧凑 task spec 与真实评估配对；
+`benchmark audit` 会确定性还原完整 task，再调用正式 task schema 和适配器检查，
+同时拒绝重复参数、未知任务和不平衡的实验组。
 本阶段不实现崩溃续跑、向量检索或跨任务知识提炼。
 
 ## C6 真实执行证据

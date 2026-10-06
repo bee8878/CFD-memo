@@ -70,6 +70,59 @@ $preview.risks
 仅检索但没有采用的经验不会被宣称为成功因素。`inspect <workflow>` 的
 `outputs.summary` 可直接定位结构化摘要。
 
+## M1：跨任务评估清单
+
+正式评估 v1 已冻结 30 个任务规格，覆盖三个任务族和两个求解器；五个真实锚点在
+四种记忆策略下配对，形成计划中的 20 次真实评估。M1 只审计协议，不调用模型或
+OpenFOAM：
+
+```powershell
+.\.venv\Scripts\python.exe -m cfd_memo_agent.cli benchmark audit
+```
+
+命令会验证 task schema、适配器支持、参数唯一性、四类数据分区和四组配对公平性。
+完整协议见 [跨任务评估协议](docs/cross-task-benchmark.md)。
+
+M2 增加可恢复批量运行器。它先用非评估任务建立 simple-cache 与知识记忆，再复制成
+彼此隔离的只读快照；每完成一个配对就原子更新 `state.json`。先用一项模拟评估检查
+调度，不会调用模型或 OpenFOAM：
+
+```powershell
+python -m cfd_memo_agent.cli benchmark run --runner simulated --limit 1
+```
+
+真实批次必须使用已配置的 DeepSeek 和 OpenFOAM 10，可用 `--limit` 分批，并从输出目录
+恢复。`state.json` 保存实际模型、token、价格快照和 episode 路径，但不保存 API 密钥：
+
+```powershell
+python -m cfd_memo_agent.cli benchmark run --runner real --limit 1
+python -m cfd_memo_agent.cli benchmark run --runner real --resume <study目录> --limit 1
+```
+
+首轮正式 M2 已在本地 `cross-task-m2-real-v1` 完成 20/20 个槽位：12 个工程完成，
+8 个保留为安全停止的失败样本，基础设施失败为零。该计数尚未替代 M3 的指标重算和
+不确定性分析，也不表示三个任务族都完成了物理准确性验证。
+
+M3 可从本地 episode 重算统计并生成中文失败案例报告；重复生成必须显式加 `--force`：
+
+```powershell
+python -m cfd_memo_agent.cli benchmark analyze `
+  --study cases/runs/cross-task-m2-real-v1
+```
+
+当前结果中四组最终成功率相同；CFD-Memo 减少了修正并提前避免两个已知圆柱故障，
+但每组仅五个任务且配对检验不显著，因此文档不把这一趋势表述为已证明的普遍提升。
+
+M4 使用专用导出器生成脱敏交付包，不复制本地原始 episode 或 OpenFOAM 场文件：
+
+```powershell
+python -m cfd_memo_agent.cli benchmark package `
+  --study cases/runs/cross-task-m2-real-v1
+```
+
+交付文件位于 `docs/results/cross-task-v1/`。公开前仍需人工审阅并选择开源许可证；仓库
+当前没有许可证文件，生成交付包不等于授予第三方复用权利。
+
 ## H1：CaseSpec、能力注册表与已有 case 导入
 
 阶段 H 的第一版把“任务是什么”和“程序会什么”从圆柱模板中分离出来：

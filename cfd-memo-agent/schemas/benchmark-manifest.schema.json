@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/cfd-memo-agent/benchmark-manifest.schema.json",
+  "title": "CFD-Memo Cross-Task Benchmark Manifest",
+  "type": "object",
+  "required": ["schema_version", "benchmark_id", "frozen_at", "purpose", "environment",
+               "model", "groups", "correction_budget", "command_timeout_seconds",
+               "partitions", "metrics", "task_specs", "real_evaluations",
+               "success_definition", "limitations"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "benchmark_id": { "type": "string", "minLength": 1 },
+    "frozen_at": { "type": "string", "format": "date" },
+    "purpose": { "type": "string", "minLength": 1 },
+    "environment": { "type": "object" },
+    "model": {
+      "type": "object",
+      "required": ["provider", "model", "timeout_seconds", "max_output_tokens_per_call",
+                   "temperature_policy", "credential_source", "secrets_in_manifest"],
+      "properties": {
+        "provider": { "enum": ["rules", "deepseek", "openai"] },
+        "model": { "type": ["string", "null"] },
+        "timeout_seconds": { "type": "number", "exclusiveMinimum": 0 },
+        "max_output_tokens_per_call": { "type": "integer", "minimum": 1 },
+        "temperature_policy": { "type": "string" },
+        "credential_source": { "type": ["string", "null"] },
+        "secrets_in_manifest": { "const": false }
+      },
+      "additionalProperties": false
+    },
+    "groups": {
+      "type": "array", "minItems": 4, "uniqueItems": true,
+      "items": { "enum": ["no_memory", "simple_cache", "retrieval_only", "cfd_memo"] }
+    },
+    "correction_budget": { "type": "integer", "minimum": 0 },
+    "command_timeout_seconds": { "type": "number", "exclusiveMinimum": 0 },
+    "partitions": { "type": "array", "minItems": 4, "uniqueItems": true, "items": { "type": "string" } },
+    "metrics": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
+    "task_specs": {
+      "type": "array", "minItems": 30,
+      "items": {
+        "type": "object",
+        "required": ["id", "family", "solver", "partition", "fault_profile", "real_anchor", "parameters"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "family": { "enum": ["cylinder-2d", "cavity-2d", "backward-step-2d"] },
+          "solver": { "enum": ["icoFoam", "simpleFoam"] },
+          "partition": { "enum": ["same_family_new_parameters", "known_fault", "unknown_fault", "cross_family_transfer"] },
+          "fault_profile": { "type": "string", "minLength": 1 },
+          "real_anchor": { "type": "boolean" },
+          "parameters": { "type": "object", "minProperties": 3, "additionalProperties": { "type": "number" } }
+        },
+        "additionalProperties": false
+      }
+    },
+    "real_evaluations": {
+      "type": "array", "minItems": 20,
+      "items": {
+        "type": "object",
+        "required": ["id", "task_id", "group"],
+        "properties": {
+          "id": { "type": "string" },
+          "task_id": { "type": "string" },
+          "group": { "enum": ["no_memory", "simple_cache", "retrieval_only", "cfd_memo"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "success_definition": { "type": "object" },
+    "limitations": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+  },
+  "additionalProperties": false
+}

@@ -31,7 +31,7 @@ PROJECT = Path(__file__).resolve().parents[2]
 
 def _options(description, task_path, mode, max_corrections, timeout, fault, planner_fallback,
              memory_mode, memory_dir, memory_learning, memory_embedding,
-             controlled_acceptance, confirmed_preflight):
+             controlled_acceptance, confirmed_preflight, generation_template_dir):
     if (description is None) == (task_path is None):
         raise ValueError("需求与 task_path 必须二选一")
     if description is not None and not isinstance(description, str):
@@ -47,9 +47,8 @@ def _options(description, task_path, mode, max_corrections, timeout, fault, plan
     if fault is not None and (fault not in FAULTS
                               or (mode != "simulated" and not controlled_acceptance)):
         raise ValueError("受控故障仅支持模拟模式，真实模式只能由专用迁移验收流程启用")
-    if controlled_acceptance and (mode != "real" or task_path is None or fault is None
-                                  or memory_mode != "cfd_memo"):
-        raise ValueError("真实受控验收要求 task_path、real runner、cfd_memo 和受控故障")
+    if controlled_acceptance and (mode != "real" or task_path is None or fault is None):
+        raise ValueError("真实受控验收要求 task_path、real runner 和受控故障")
     if planner_fallback not in {"stop", "rules"}:
         raise ValueError("planner_fallback 必须为 stop 或 rules")
     if memory_mode not in {"no_memory", "simple_cache", "retrieval_only", "cfd_memo"}:
@@ -63,6 +62,8 @@ def _options(description, task_path, mode, max_corrections, timeout, fault, plan
     if confirmed_preflight is not None and (
             task_path is None or not isinstance(confirmed_preflight, dict)):
         raise ValueError("confirmed_preflight 只接受 task_path 对应的确认记录")
+    if generation_template_dir is not None and not Path(generation_template_dir).is_dir():
+        raise ValueError("generation_template_dir 必须是存在的目录")
 
 
 def run_workflow(description=None, *, task_path=None, mode, runs_dir=None,
@@ -72,11 +73,12 @@ def run_workflow(description=None, *, task_path=None, mode, runs_dir=None,
                  memory_dir=None, memory_learning=True, tutorial_index_path=None,
                  memory_embedding: EmbeddingProvider | None = None,
                  controlled_acceptance: bool = False,
-                 confirmed_preflight: dict | None = None) -> dict:
+                 confirmed_preflight: dict | None = None,
+                 generation_template_dir: Path | None = None) -> dict:
     """Run C1-C4, optionally repair supported fields, and persist an episode."""
     _options(description, task_path, mode, max_corrections, timeout, fault,
              planner_fallback, memory_mode, memory_dir, memory_learning, memory_embedding,
-             controlled_acceptance, confirmed_preflight)
+             controlled_acceptance, confirmed_preflight, generation_template_dir)
     parent = Path(runs_dir).resolve() if runs_dir is not None else PROJECT / "cases/runs"
     template = (PROJECT / "cases/templates").resolve()
     if parent == template or template in parent.parents:
@@ -329,8 +331,16 @@ def run_workflow(description=None, *, task_path=None, mode, runs_dir=None,
             "Case Writer 决策未通过，未创建 OpenFOAM case。",
         )
     try:
+        generation_options = {}
+        generation_intent = case_writing["intent"]
+        if task["case_type"] == "backward-step-2d":
+            if generation_template_dir is None:
+                raise ValueError("后台阶任务需要已验证的 OpenFOAM pitzDaily 教程目录")
+            generation_options["template_dir"] = Path(generation_template_dir).resolve()
+            generation_intent = None
         reference = Path(generate_case(
-            task, runs_dir=root / "reference", intent=case_writing["intent"],
+            task, runs_dir=root / "reference", intent=generation_intent,
+            **generation_options,
         )["run_path"])
     except (OSError, ValueError) as exc:
         episode["findings"] = [issue("GENERATION_FAILED", str(exc), "generator")]

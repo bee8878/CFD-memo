@@ -1,0 +1,363 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "cfd-memo-cross-task-v1",
+  "groups": {
+    "no_memory": {
+      "tasks": 5,
+      "engineering_success": {
+        "successes": 3,
+        "total": 5,
+        "estimate": 0.6,
+        "wilson_ci95": [
+          0.23071993220883708,
+          0.8823817688407467
+        ]
+      },
+      "first_pass": {
+        "successes": 0,
+        "total": 5,
+        "estimate": 0.0,
+        "wilson_ci95": [
+          0.0,
+          0.43449149475208104
+        ]
+      },
+      "effective_experience_use": {
+        "successes": 0,
+        "total": 5,
+        "estimate": 0.0,
+        "wilson_ci95": [
+          0.0,
+          0.43449149475208104
+        ]
+      },
+      "failure_avoidance": {
+        "successes": 0,
+        "total": 4,
+        "estimate": 0.0,
+        "wilson_ci95": [
+          0.0,
+          0.48990002040399916
+        ]
+      },
+      "corrections": {
+        "count": 5,
+        "mean": 0.6,
+        "sample_sd": 0.5477225575051661,
+        "min": 0.0,
+        "max": 1.0
+      },
+      "elapsed_seconds": {
+        "count": 5,
+        "mean": 20.46915292001795,
+        "sample_sd": 12.89821341990106,
+        "min": 6.159023700049147,
+        "max": 30.555769100086764
+      },
+      "total_tokens": {
+        "count": 5,
+        "mean": 3064.0,
+        "sample_sd": 416.68273302357994,
+        "min": 2494.0,
+        "max": 3425.0
+      },
+      "estimated_cost_off_peak_usd": 0.0035964269999999997,
+      "estimated_cost_peak_usd": 0.007192853999999999,
+      "openfoam_started": 3,
+      "stop_codes": {
+        "COMPLETED": 3,
+        "UNSUPPORTED_ERROR": 2
+      }
+    },
+    "simple_cache": {
+      "tasks": 5,
+      "engineering_success": {
+        "successes": 3,
+        "total": 5,
+        "estimate": 0.6,
+        "wilson_ci95": [
+          0.23071993220883708,
+          0.8823817688407467
+        ]
+      },
+      "first_pass": {
+        "successes": 0,
+        "total": 5,
+        "estimate": 0.0,
+        "wilson_ci95": [
+          0.0,
+          0.43449149475208104
+        ]
+      },
+      "effective_experience_use": {
+        "successes": 0,
+        "total": 5,
+        "estimate": 0.0,
+        "wilson_ci95": [
+          0.0,
+          0.43449149475208104
+        ]
+      },
+      "failure_avoidance": {
+        "successes": 0,
+        "total": 4,
+        "estimate": 0.0,
+        "wilson_ci95": [
+          0.0,
+          0.48990002040399916
+        ]
+      },
+      "corrections": {
+        "count": 5,
+        "mean": 0.6,
+        "sample_sd": 0.5477225575051661,
+        "min": 0.0,
+        "max": 1.0
+      },
+      "elapsed_seconds": {
+        "count": 5,
+        "mean": 20.790409220033325,
+        "sample_sd": 14.051038777139757,
+        "min": 5.269429899984971,
+        "max": 34.6981479000533
+      },
+      "total_tokens": {
+        "count": 5,
+        "mean": 3024.4,
+        "sample_sd": 466.0083690235616,
+        "min": 2401.0,
+        "max": 3491.0
+      },
+      "estimated_cost_off_peak_usd": 0.0027443909999999997,
+      "estimated_cost_peak_usd": 0.005488781999999999,
+      "openfoam_started": 3,
+      "stop_codes": {
+        "COMPLETED": 3,
+        "UNSUPPORTED_ERROR": 2
+      }
+    },
+    "retrieval_only": {
+      "tasks": 5,
+      "engineering_success": {
+        "successes": 3,
+        "total": 5,
+        "estimate": 0.6,
+        "wilson_ci95": [
+          0.23071993220883708,
+          0.8823817688407467
+        ]
+      },
+      "first_pass": {
+        "successes": 0,
+        "total": 5,
+        "estimate": 0.0,
+        "wilson_ci95": [
+          0.0,
+          0.43449149475208104
+        ]
+      },
+      "effective_experience_use": {
+        "successes": 2,
+        "total": 5,
+        "estimate": 0.4,
+        "wilson_ci95": [
+          0.1176182311592533,
+          0.769280067791163
+        ]
+      },
+      "failure_avoidance": {
+        "successes": 0,
+        "total": 4,
+        "estimate": 0.0,
+        "wilson_ci95": [
+          0.0,
+          0.48990002040399916
+        ]
+      },
+      "corrections": {
+        "count": 5,
+        "mean": 0.6,
+        "sample_sd": 0.5477225575051661,
+        "min": 0.0,
+        "max": 1.0
+      },
+      "elapsed_seconds": {
+        "count": 5,
+        "mean": 22.70021931999363,
+        "sample_sd": 15.087484331330455,
+        "min": 5.959550500032492,
+        "max": 34.99400880001485
+      },
+      "total_tokens": {
+        "count": 5,
+        "mean": 3281.6,
+        "sample_sd": 713.3970142914814,
+        "min": 2469.0,
+        "max": 4068.0
+      },
+      "estimated_cost_off_peak_usd": 0.003263487,
+      "estimated_cost_peak_usd": 0.006526974,
+      "openfoam_started": 3,
+      "stop_codes": {
+        "COMPLETED": 3,
+        "UNSUPPORTED_ERROR": 2
+      }
+    },
+    "cfd_memo": {
+      "tasks": 5,
+      "engineering_success": {
+        "successes": 3,
+        "total": 5,
+        "estimate": 0.6,
+        "wilson_ci95": [
+          0.23071993220883708,
+          0.8823817688407467
+        ]
+      },
+      "first_pass": {
+        "successes": 2,
+        "total": 5,
+        "estimate": 0.4,
+        "wilson_ci95": [
+          0.1176182311592533,
+          0.769280067791163
+        ]
+      },
+      "effective_experience_use": {
+        "successes": 2,
+        "total": 5,
+        "estimate": 0.4,
+        "wilson_ci95": [
+          0.1176182311592533,
+          0.769280067791163
+        ]
+      },
+      "failure_avoidance": {
+        "successes": 2,
+        "total": 4,
+        "estimate": 0.5,
+        "wilson_ci95": [
+          0.15003570882017148,
+          0.8499642911798285
+        ]
+      },
+      "corrections": {
+        "count": 5,
+        "mean": 0.2,
+        "sample_sd": 0.4472135954999579,
+        "min": 0.0,
+        "max": 1.0
+      },
+      "elapsed_seconds": {
+        "count": 5,
+        "mean": 16.525637180008925,
+        "sample_sd": 9.654381046260035,
+        "min": 5.673096499987878,
+        "max": 26.03301619994454
+      },
+      "total_tokens": {
+        "count": 5,
+        "mean": 3016.0,
+        "sample_sd": 357.3870450925719,
+        "min": 2505.0,
+        "max": 3316.0
+      },
+      "estimated_cost_off_peak_usd": 0.002988747,
+      "estimated_cost_peak_usd": 0.005977494,
+      "openfoam_started": 3,
+      "stop_codes": {
+        "COMPLETED": 3,
+        "UNSUPPORTED_ERROR": 2
+      }
+    }
+  },
+  "paired_vs_no_memory": {
+    "simple_cache": {
+      "tasks": [
+        "cavity-05-re100-boundary",
+        "cavity-07-re150-time",
+        "cylinder-05-re150-boundary",
+        "cylinder-06-re180-transport",
+        "step-05-re22860-boundary"
+      ],
+      "engineering_success": {
+        "baseline_only": 0,
+        "comparison_only": 0,
+        "discordant_pairs": 0,
+        "exact_two_sided_p": 1.0
+      },
+      "first_pass": {
+        "baseline_only": 0,
+        "comparison_only": 0,
+        "discordant_pairs": 0,
+        "exact_two_sided_p": 1.0
+      },
+      "mean_correction_difference_vs_no_memory": 0,
+      "mean_elapsed_difference_seconds_vs_no_memory": 0.32125630001537503
+    },
+    "retrieval_only": {
+      "tasks": [
+        "cavity-05-re100-boundary",
+        "cavity-07-re150-time",
+        "cylinder-05-re150-boundary",
+        "cylinder-06-re180-transport",
+        "step-05-re22860-boundary"
+      ],
+      "engineering_success": {
+        "baseline_only": 0,
+        "comparison_only": 0,
+        "discordant_pairs": 0,
+        "exact_two_sided_p": 1.0
+      },
+      "first_pass": {
+        "baseline_only": 0,
+        "comparison_only": 0,
+        "discordant_pairs": 0,
+        "exact_two_sided_p": 1.0
+      },
+      "mean_correction_difference_vs_no_memory": 0,
+      "mean_elapsed_difference_seconds_vs_no_memory": 2.23106639997568
+    },
+    "cfd_memo": {
+      "tasks": [
+        "cavity-05-re100-boundary",
+        "cavity-07-re150-time",
+        "cylinder-05-re150-boundary",
+        "cylinder-06-re180-transport",
+        "step-05-re22860-boundary"
+      ],
+      "engineering_success": {
+        "baseline_only": 0,
+        "comparison_only": 0,
+        "discordant_pairs": 0,
+        "exact_two_sided_p": 1.0
+      },
+      "first_pass": {
+        "baseline_only": 0,
+        "comparison_only": 2,
+        "discordant_pairs": 2,
+        "exact_two_sided_p": 0.5
+      },
+      "mean_correction_difference_vs_no_memory": -0.4,
+      "mean_elapsed_difference_seconds_vs_no_memory": -3.943515740009025
+    }
+  },
+  "totals": {
+    "evaluations": 20,
+    "engineering_successes": 12,
+    "business_failures": 8,
+    "openfoam_started": 12,
+    "input_tokens": 45774,
+    "output_tokens": 16156,
+    "total_tokens": 61930,
+    "estimated_cost_off_peak_usd": 0.012593051999999999,
+    "estimated_cost_peak_usd": 0.025186103999999997,
+    "physical_validated": 0
+  },
+  "limitations": [
+    "Each group contains only five paired tasks.",
+    "Engineering completion is not physical validation.",
+    "Hosted-model latency and pricing are time-dependent.",
+    "The frozen anchors cover three registered families, not arbitrary CFD cases."
+  ]
+}

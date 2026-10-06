@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "evaluation_id": "real-011",
+      "task_id": "cylinder-05-re150-boundary",
+      "group": "retrieval_only",
+      "fault_profile": "missing-boundary",
+      "effective_experience_use": true,
+      "failure_avoided": false,
+      "actions": [
+        {
+          "agent": "reviewer",
+          "decision": "repair",
+          "effect": "supported_evidence_based_repair",
+          "outcome": "effective"
+        }
+      ],
+      "preventions": []
+    },
+    {
+      "evaluation_id": "real-012",
+      "task_id": "cylinder-06-re180-transport",
+      "group": "retrieval_only",
+      "fault_profile": "bad-transport",
+      "effective_experience_use": true,
+      "failure_avoided": false,
+      "actions": [
+        {
+          "agent": "reviewer",
+          "decision": "repair",
+          "effect": "supported_evidence_based_repair",
+          "outcome": "effective"
+        }
+      ],
+      "preventions": []
+    },
+    {
+      "evaluation_id": "real-016",
+      "task_id": "cylinder-05-re150-boundary",
+      "group": "cfd_memo",
+      "fault_profile": "missing-boundary",
+      "effective_experience_use": true,
+      "failure_avoided": true,
+      "actions": [
+        {
+          "agent": "case_writer",
+          "decision": "prepare_with_memory",
+          "effect": "added_preventive_file_checks",
+          "outcome": "effective"
+        },
+        {
+          "agent": "case_writer",
+          "decision": "prevent_configuration_drift",
+          "effect": "prevented_known_configuration_drift",
+          "outcome": "effective"
+        }
+      ],
+      "preventions": [
+        {
+          "action": "restore_from_trusted_reference",
+          "files": [
+            "0/U"
+          ]
+        }
+      ]
+    },
+    {
+      "evaluation_id": "real-017",
+      "task_id": "cylinder-06-re180-transport",
+      "group": "cfd_memo",
+      "fault_profile": "bad-transport",
+      "effective_experience_use": true,
+      "failure_avoided": true,
+      "actions": [
+        {
+          "agent": "case_writer",
+          "decision": "prepare_with_memory",
+          "effect": "added_preventive_file_checks",
+          "outcome": "effective"
+        },
+        {
+          "agent": "case_writer",
+          "decision": "prevent_configuration_drift",
+          "effect": "prevented_known_configuration_drift",
+          "outcome": "effective"
+        }
+      ],
+      "preventions": [
+        {
+          "action": "restore_from_trusted_reference",
+          "files": [
+            "constant/physicalProperties"
+          ]
+        }
+      ]
+    }
+  ]
+}

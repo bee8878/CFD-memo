@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "cfd-memo-cross-task-v1",
+  "frozen_at": "2026-10-06",
+  "purpose": "Compare memory strategies across registered CFD task families without treating deterministic repeats as new samples.",
+  "environment": {
+    "openfoam_distribution": "Foundation",
+    "openfoam_version": "10",
+    "linux_backend": "WSL2 Ubuntu-22.04",
+    "python": ">=3.12"
+  },
+  "model": {
+    "provider": "deepseek",
+    "model": "deepseek-chat",
+    "timeout_seconds": 60,
+    "max_output_tokens_per_call": 2000,
+    "temperature_policy": "provider-default",
+    "credential_source": "DEEPSEEK_API_KEY",
+    "secrets_in_manifest": false
+  },
+  "groups": ["no_memory", "simple_cache", "retrieval_only", "cfd_memo"],
+  "correction_budget": 2,
+  "command_timeout_seconds": 1800,
+  "partitions": [
+    "same_family_new_parameters",
+    "known_fault",
+    "unknown_fault",
+    "cross_family_transfer"
+  ],
+  "metrics": [
+    "real_success_rate",
+    "first_pass_rate",
+    "mean_corrections",
+    "elapsed_seconds",
+    "input_tokens",
+    "output_tokens",
+    "estimated_cost",
+    "effective_experience_reuse_rate",
+    "failure_avoidance_rate"
+  ],
+  "task_specs": [
+    {"id":"cylinder-01-re60","family":"cylinder-2d","solver":"icoFoam","partition":"same_family_new_parameters","fault_profile":"none","real_anchor":false,"parameters":{"reynolds_number":60,"inlet_velocity":0.6,"diameter":1.0,"target_cells":3000,"end_time":0.1,"delta_t":0.005}},
+    {"id":"cylinder-02-re80","family":"cylinder-2d","solver":"icoFoam","partition":"same_family_new_parameters","fault_profile":"none","real_anchor":false,"parameters":{"reynolds_number":80,"inlet_velocity":0.8,"diameter":1.0,"target_cells":3000,"end_time":0.1,"delta_t":0.005}},
+    {"id":"cylinder-03-re100","family":"cylinder-2d","solver":"icoFoam","partition":"same_family_new_parameters","fault_profile":"none","real_anchor":false,"parameters":{"reynolds_number":100,"inlet_velocity":1.0,"diameter":1.0,"target_cells":3000,"end_time":0.1,"delta_t":0.005}},
+    {"id":"cylinder-04-re120","family":"cylinder-2d","solver":"icoFoam","partition":"same_family_new_parameters","fault_profile":"none","real_anchor":false,"parameters":{"reynolds_number":120,"inlet_velocity":1.2,"diameter":1.0,"target_cells":3000,"end_time":0.1,"delta_t":0.005}},
+    {"id":"cylinder-05-re150-boundary","family":"cylinder-2d","solver":"icoFoam","partition":"known_fault","fault_profile":"missing-boundary","real_anchor":true,"parameters":{"reynolds_number":150,"inlet_velocity":1.5,"diameter":1.0,"target_cells":3000,"end_time":0.1,"delta_t":0.005}},
+    {"id":"cylinder-06-re180-transport","family":"cylinder-2d","solver":"icoFoam","partition":"known_fault","fault_profile":"bad-transport","real_anchor":true,"parameters":{"reynolds_number":180,"inlet_velocity":1.8,"diameter":1.0,"target_cells":3000,"end_time":0.1,"delta_t":0.005}},
+    {"id":"cylinder-07-re200-time","family":"cylinder-2d","solver":"icoFoam","partition":"unknown_fault","fault_profile":"time-control-drift","real_anchor":false,"parameters":{"reynolds_number":200,"inlet_velocity":2.0,"diameter":1.0,"target_cells":3000,"end_time":0.1,"delta_t":0.005}},
+    {"id":"cylinder-08-re250-mesh","family":"cylinder-2d","solver":"icoFoam","partition":"unknown_fault","fault_profile":"mesh-resolution-risk","real_anchor":false,"parameters":{"reynolds_number":250,"inlet_velocity":2.5,"diameter":1.0,"target_cells":4000,"end_time":0.1,"delta_t":0.004}},
+    {"id":"cylinder-09-re300-boundary-transfer","family":"cylinder-2d","solver":"icoFoam","partition":"cross_family_transfer","fault_profile":"boundary-semantics-transfer","real_anchor":false,"parameters":{"reynolds_number":300,"inlet_velocity":3.0,"diameter":1.0,"target_cells":4000,"end_time":0.1,"delta_t":0.004}},
+    {"id":"cylinder-10-re400-transport-transfer","family":"cylinder-2d","solver":"icoFoam","partition":"cross_family_transfer","fault_profile":"transport-relation-transfer","real_anchor":false,"parameters":{"reynolds_number":400,"inlet_velocity":4.0,"diameter":1.0,"target_cells":5000,"end_time":0.1,"delta_t":0.0025}},
+
+    {"id":"cavity-01-re20","family":"cavity-2d","solver":"icoFoam","partition":"same_family_new_parameters","fault_profile":"none","real_anchor":false,"parameters":{"reynolds_number":20,"lid_velocity":0.2,"cells_x":20,"cells_y":20,"end_time":0.1,"delta_t":0.005}},
+    {"id":"cavity-02-re40","family":"cavity-2d","solver":"icoFoam","partition":"same_family_new_parameters","fault_profile":"none","real_anchor":false,"parameters":{"reynolds_number":40,"lid_velocity":0.4,"cells_x":20,"cells_y":20,"end_time":0.1,"delta_t":0.005}},
+    {"id":"cavity-03-re60","family":"cavity-2d","solver":"icoFoam","partition":"same_family_new_parameters","fault_profile":"none","real_anchor":false,"parameters":{"reynolds_number":60,"lid_velocity":0.6,"cells_x":20,"cells_y":20,"end_time":0.1,"delta_t":0.005}},
+    {"id":"cavity-04-re80","family":"cavity-2d","solver":"icoFoam","partition":"same_family_new_parameters","fault_profile":"none","real_anchor":false,"parameters":{"reynolds_number":80,"lid_velocity":0.8,"cells_x":20,"cells_y":20,"end_time":0.1,"delta_t":0.005}},
+    {"id":"cavity-05-re100-boundary","family":"cavity-2d","solver":"icoFoam","partition":"known_fault","fault_profile":"missing-boundary","real_anchor":true,"parameters":{"reynolds_number":100,"lid_velocity":1.0,"cells_x":20,"cells_y":20,"end_time":0.1,"delta_t":0.005}},
+    {"id":"cavity-06-re120-transport","family":"cavity-2d","solver":"icoFoam","partition":"known_fault","fault_profile":"bad-transport","real_anchor":false,"parameters":{"reynolds_number":120,"lid_velocity":1.2,"cells_x":20,"cells_y":20,"end_time":0.1,"delta_t":0.005}},
+    {"id":"cavity-07-re150-time","family":"cavity-2d","solver":"icoFoam","partition":"unknown_fault","fault_profile":"time-control-drift","real_anchor":true,"parameters":{"reynolds_number":150,"lid_velocity":1.5,"cells_x":24,"cells_y":24,"end_time":0.1,"delta_t":0.004}},
+    {"id":"cavity-08-re200-mesh","family":"cavity-2d","solver":"icoFoam","partition":"unknown_fault","fault_profile":"mesh-resolution-risk","real_anchor":false,"parameters":{"reynolds_number":200,"lid_velocity":2.0,"cells_x":28,"cells_y":28,"end_time":0.1,"delta_t":0.004}},
+    {"id":"cavity-09-re250-boundary-transfer","family":"cavity-2d","solver":"icoFoam","partition":"cross_family_transfer","fault_profile":"boundary-semantics-transfer","real_anchor":false,"parameters":{"reynolds_number":250,"lid_velocity":2.5,"cells_x":32,"cells_y":32,"end_time":0.1,"delta_t":0.0025}},
+    {"id":"cavity-10-re300-transport-transfer","family":"cavity-2d","solver":"icoFoam","partition":"cross_family_transfer","fault_profile":"transport-relation-transfer","real_anchor":false,"parameters":{"reynolds_number":300,"lid_velocity":3.0,"cells_x":36,"cells_y":36,"end_time":0.1,"delta_t":0.0025}},
+
+    {"id":"step-01-re12700","family":"backward-step-2d","solver":"simpleFoam","partition":"same_family_new_parameters","fault_profile":"none","real_anchor":false,"parameters":{"reynolds_number":12700,"inlet_velocity":5.0,"end_iteration":400}},
+    {"id":"step-02-re15240","family":"backward-step-2d","solver":"simpleFoam","partition":"same_family_new_parameters","fault_profile":"none","real_anchor":false,"parameters":{"reynolds_number":15240,"inlet_velocity":6.0,"end_iteration":400}},
+    {"id":"step-03-re17780","family":"backward-step-2d","solver":"simpleFoam","partition":"same_family_new_parameters","fault_profile":"none","real_anchor":false,"parameters":{"reynolds_number":17780,"inlet_velocity":7.0,"end_iteration":400}},
+    {"id":"step-04-re20320","family":"backward-step-2d","solver":"simpleFoam","partition":"same_family_new_parameters","fault_profile":"none","real_anchor":false,"parameters":{"reynolds_number":20320,"inlet_velocity":8.0,"end_iteration":400}},
+    {"id":"step-05-re22860-boundary","family":"backward-step-2d","solver":"simpleFoam","partition":"known_fault","fault_profile":"missing-boundary","real_anchor":true,"parameters":{"reynolds_number":22860,"inlet_velocity":9.0,"end_iteration":400}},
+    {"id":"step-06-re25400-transport","family":"backward-step-2d","solver":"simpleFoam","partition":"known_fault","fault_profile":"bad-transport","real_anchor":false,"parameters":{"reynolds_number":25400,"inlet_velocity":10.0,"end_iteration":400}},
+    {"id":"step-07-re27940-time","family":"backward-step-2d","solver":"simpleFoam","partition":"unknown_fault","fault_profile":"time-control-drift","real_anchor":false,"parameters":{"reynolds_number":27940,"inlet_velocity":11.0,"end_iteration":450}},
+    {"id":"step-08-re30480-mesh","family":"backward-step-2d","solver":"simpleFoam","partition":"unknown_fault","fault_profile":"mesh-resolution-risk","real_anchor":false,"parameters":{"reynolds_number":30480,"inlet_velocity":12.0,"end_iteration":450}},
+    {"id":"step-09-re33020-boundary-transfer","family":"backward-step-2d","solver":"simpleFoam","partition":"cross_family_transfer","fault_profile":"boundary-semantics-transfer","real_anchor":false,"parameters":{"reynolds_number":33020,"inlet_velocity":13.0,"end_iteration":500}},
+    {"id":"step-10-re38100-transport-transfer","family":"backward-step-2d","solver":"simpleFoam","partition":"cross_family_transfer","fault_profile":"transport-relation-transfer","real_anchor":false,"parameters":{"reynolds_number":38100,"inlet_velocity":15.0,"end_iteration":500}}
+  ],
+  "real_evaluations": [
+    {"id":"real-001","task_id":"cylinder-05-re150-boundary","group":"no_memory"},
+    {"id":"real-002","task_id":"cylinder-06-re180-transport","group":"no_memory"},
+    {"id":"real-003","task_id":"cavity-05-re100-boundary","group":"no_memory"},
+    {"id":"real-004","task_id":"cavity-07-re150-time","group":"no_memory"},
+    {"id":"real-005","task_id":"step-05-re22860-boundary","group":"no_memory"},
+    {"id":"real-006","task_id":"cylinder-05-re150-boundary","group":"simple_cache"},
+    {"id":"real-007","task_id":"cylinder-06-re180-transport","group":"simple_cache"},
+    {"id":"real-008","task_id":"cavity-05-re100-boundary","group":"simple_cache"},
+    {"id":"real-009","task_id":"cavity-07-re150-time","group":"simple_cache"},
+    {"id":"real-010","task_id":"step-05-re22860-boundary","group":"simple_cache"},
+    {"id":"real-011","task_id":"cylinder-05-re150-boundary","group":"retrieval_only"},
+    {"id":"real-012","task_id":"cylinder-06-re180-transport","group":"retrieval_only"},
+    {"id":"real-013","task_id":"cavity-05-re100-boundary","group":"retrieval_only"},
+    {"id":"real-014","task_id":"cavity-07-re150-time","group":"retrieval_only"},
+    {"id":"real-015","task_id":"step-05-re22860-boundary","group":"retrieval_only"},
+    {"id":"real-016","task_id":"cylinder-05-re150-boundary","group":"cfd_memo"},
+    {"id":"real-017","task_id":"cylinder-06-re180-transport","group":"cfd_memo"},
+    {"id":"real-018","task_id":"cavity-05-re100-boundary","group":"cfd_memo"},
+    {"id":"real-019","task_id":"cavity-07-re150-time","group":"cfd_memo"},
+    {"id":"real-020","task_id":"step-05-re22860-boundary","group":"cfd_memo"}
+  ],
+  "success_definition": {
+    "engineering_success": "real runner completes its trusted command plan and validates final field evidence",
+    "first_pass": "round 0 reaches engineering_success without correction",
+    "effective_memory_use": "episode records an effective usage outcome or prevention backed by source evidence",
+    "physical_success": "reported separately and never inferred from engineering_success"
+  },
+  "limitations": [
+    "M1 freezes task specifications and evaluation slots; it does not execute the 20 real evaluations.",
+    "Unknown-fault injectors and cross-family repair policies must be implemented and tested before M2 execution.",
+    "Only the Re=100 cylinder baseline currently has a completed physical validation study.",
+    "The DeepSeek model name and pricing must be recorded again at execution time because hosted services can change."
+  ]
+}

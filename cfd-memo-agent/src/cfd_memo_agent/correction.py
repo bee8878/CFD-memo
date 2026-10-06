@@ -7,9 +7,15 @@ import re
 from cfd_memo_agent.validator import validate_case, validate_task
 from cfd_memo_agent.validator.foam import parse_foam
 
-FAULTS = ("missing-boundary", "bad-transport")
+FAULTS = (
+    "missing-boundary", "bad-transport", "time-control-drift",
+    "mesh-resolution-risk", "boundary-semantics-transfer",
+    "transport-relation-transfer",
+)
 FIELDS = ("0/U", "0/p")
 TRANSPORT = "constant/physicalProperties"
+CONTROL = "system/controlDict"
+MESH = "system/blockMeshDict"
 FIELD_CODES = {"BOUNDARY_NAMES", "BOUNDARY_TYPE", "FIELD_VALUE", "VALUE_MISMATCH",
                "CONFIG_STRUCTURE", "CONFIG_ENTRY"}
 TRANSPORT_CODES = {"CONFIG_NUMBER", "CONFIG_ENTRY", "DIMENSIONS", "VALUE_MISMATCH"}
@@ -23,17 +29,60 @@ def inject_fault(case_dir: Path, fault: str) -> dict:
     """Modify only a fresh workflow-owned first-round copy."""
     if fault not in FAULTS:
         raise ValueError("未知受控故障")
-    relative = "0/U" if fault == "missing-boundary" else TRANSPORT
+    relative = {
+        "missing-boundary": "0/U",
+        "bad-transport": TRANSPORT,
+        "time-control-drift": CONTROL,
+        "mesh-resolution-risk": MESH,
+        "boundary-semantics-transfer": "0/U",
+        "transport-relation-transfer": TRANSPORT,
+    }[fault]
     path = case_dir / relative
     before = path.read_text(encoding="utf-8")
     document = parse_foam(before)
     if fault == "missing-boundary":
-        if "outlet" not in document["boundaryField"]:
-            raise ValueError("默认模板缺少待注入故障的 outlet")
+        names = document.get("boundaryField", {})
+        target = next((name for name in ("outlet", "movingWall", "inlet") if name in names), None)
+        if target is None:
+            raise ValueError("当前 case 没有可用于缺边界夹具的标准边界")
         # This mutation deliberately targets the bundled template, not arbitrary dictionaries.
-        after, count = re.subn(r"\boutlet\s*\{[^{}]*\}", "", before)
-    else:
+        after, count = re.subn(rf"\b{re.escape(target)}\s*\{{[^{{}}]*\}}", "", before)
+    elif fault == "bad-transport":
         after, count = re.subn(r"(?m)^nu\s+[^;]+;", "nu [0 2 -1 0 0 0 0] -1;", before)
+    elif fault == "time-control-drift":
+        match = re.search(r"(?m)^endTime\s+([-+0-9.eE]+)\s*;", before)
+        if match is None:
+            raise ValueError("controlDict 缺少唯一 endTime")
+        changed = format(float(match.group(1)) * 1.5 + 1, ".12g")
+        after, count = re.subn(
+            r"(?m)^endTime\s+[-+0-9.eE]+\s*;", f"endTime    {changed};", before,
+        )
+    elif fault == "mesh-resolution-risk":
+        pattern = r"(hex\s*\([^)]*\)\s*\()([1-9][0-9]*)(\s+[1-9][0-9]*\s+[1-9][0-9]*\))"
+        after, count = re.subn(pattern, r"\g<1>1\g<3>", before, count=1)
+    elif fault == "boundary-semantics-transfer":
+        names = document.get("boundaryField", {})
+        target = next((name for name in ("inlet", "movingWall") if name in names), None)
+        if target is None:
+            raise ValueError("当前 case 没有可用于边界语义迁移夹具的入口边界")
+        block = re.search(rf"\b{re.escape(target)}\s*\{{[^{{}}]*\}}", before)
+        if block is None:
+            raise ValueError("入口边界结构无法唯一定位")
+        replacement, type_count = re.subn(
+            r"\btype\s+fixedValue\s*;", "type zeroGradient;", block.group(),
+        )
+        replacement = re.sub(r"(?m)^\s*value\s+[^;]+;\s*", "", replacement)
+        after = before[:block.start()] + replacement + before[block.end():]
+        count = type_count
+    else:
+        match = re.search(r"(?m)^nu\s+(?:\[[^\]]+\]\s+)?([-+0-9.eE]+)\s*;", before)
+        if match is None:
+            raise ValueError("physicalProperties 缺少数值 nu")
+        wrong = format(float(match.group(1)) * 2, ".12g")
+        after, count = re.subn(
+            r"(?m)^(nu\s+(?:\[[^\]]+\]\s+)?)[-+0-9.eE]+(\s*;)",
+            rf"\g<1>{wrong}\g<2>", before,
+        )
     if count != 1:
         raise ValueError("受控故障要求唯一的默认模板配置项")
     parse_foam(after)

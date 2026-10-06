@@ -223,7 +223,16 @@
       "type": ["object", "null"],
       "required": ["name", "changes"],
       "properties": {
-        "name": { "enum": ["missing-boundary", "bad-transport"] },
+        "name": {
+          "enum": [
+            "missing-boundary",
+            "bad-transport",
+            "time-control-drift",
+            "mesh-resolution-risk",
+            "boundary-semantics-transfer",
+            "transport-relation-transfer"
+          ]
+        },
         "changes": { "type": "array", "items": { "$ref": "#/$defs/change" } }
       },
       "additionalProperties": false
@@ -452,7 +461,12 @@
       "type": "object",
       "required": ["file", "before", "after"],
       "properties": {
-        "file": { "enum": ["0/U", "0/p", "constant/physicalProperties"] },
+        "file": {
+          "enum": [
+            "0/U", "0/p", "constant/physicalProperties",
+            "system/controlDict", "system/blockMeshDict"
+          ]
+        },
         "before": { "type": "string" },
         "after": { "type": "string" }
       },

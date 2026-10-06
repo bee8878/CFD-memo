@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "release_id": "cross-task-v1",
+  "project": {
+    "name": "cfd-memo-agent",
+    "version": "0.1.0"
+  },
+  "source": {
+    "sha256": "0091be03d9c372931f1d78985f39bd87b1c72c7b82dc7b73462b689add07b313",
+    "file_count": 75,
+    "scope": [
+      "src/",
+      "schemas/",
+      "pyproject.toml",
+      "experiments/cross-task-v1.json"
+    ]
+  },
+  "protocol_sha256": "84db04b30482ece6dab42c5b68f83ab27591e094c82b800d91c19d879c0458a9",
+  "runtime": {
+    "python": "3.13.2",
+    "jsonschema": "4.26.0",
+    "python_dotenv": "1.2.3",
+    "openfoam_distribution": "Foundation",
+    "openfoam_version": "10",
+    "linux_backend": "WSL2 Ubuntu-22.04"
+  },
+  "model": {
+    "provider": "deepseek",
+    "model": "deepseek-flash",
+    "mode": "llm",
+    "timeout_seconds": 60.0,
+    "max_output_tokens": 2000
+  },
+  "pricing_snapshot": {
+    "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+    "retrieved_at": "2026-10-06",
+    "currency": "USD",
+    "unit": "per_1m_tokens",
+    "model": "deepseek-flash",
+    "off_peak": {
+      "input_cache_hit": 0.003,
+      "input_cache_miss": 0.15,
+      "output": 0.6
+    },
+    "peak": {
+      "input_cache_hit": 0.006,
+      "input_cache_miss": 0.3,
+      "output": 1.2
+    },
+    "note": "Store both tiers because holiday and call-time billing can change the exact rate."
+  },
+  "verification": {
+    "test_command": "python -m pytest -q",
+    "protocol_audit_command": "python -m cfd_memo_agent.cli benchmark audit",
+    "analysis_command": "python -m cfd_memo_agent.cli benchmark analyze --study <study-dir>"
+  },
+  "privacy": {
+    "raw_episodes_included": false,
+    "field_files_included": false,
+    "model_response_ids_included": false,
+    "credentials_included": false,
+    "private_research_documents_included": false
+  }
+}

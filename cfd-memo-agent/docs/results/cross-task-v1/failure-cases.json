@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "evaluation_id": "real-004",
+      "task_id": "cavity-07-re150-time",
+      "group": "no_memory",
+      "family": "cavity-2d",
+      "partition": "unknown_fault",
+      "fault_profile": "time-control-drift",
+      "stop_code": "UNSUPPORTED_ERROR",
+      "openfoam_started": false
+    },
+    {
+      "evaluation_id": "real-005",
+      "task_id": "step-05-re22860-boundary",
+      "group": "no_memory",
+      "family": "backward-step-2d",
+      "partition": "known_fault",
+      "fault_profile": "missing-boundary",
+      "stop_code": "UNSUPPORTED_ERROR",
+      "openfoam_started": false
+    },
+    {
+      "evaluation_id": "real-009",
+      "task_id": "cavity-07-re150-time",
+      "group": "simple_cache",
+      "family": "cavity-2d",
+      "partition": "unknown_fault",
+      "fault_profile": "time-control-drift",
+      "stop_code": "UNSUPPORTED_ERROR",
+      "openfoam_started": false
+    },
+    {
+      "evaluation_id": "real-010",
+      "task_id": "step-05-re22860-boundary",
+      "group": "simple_cache",
+      "family": "backward-step-2d",
+      "partition": "known_fault",
+      "fault_profile": "missing-boundary",
+      "stop_code": "UNSUPPORTED_ERROR",
+      "openfoam_started": false
+    },
+    {
+      "evaluation_id": "real-014",
+      "task_id": "cavity-07-re150-time",
+      "group": "retrieval_only",
+      "family": "cavity-2d",
+      "partition": "unknown_fault",
+      "fault_profile": "time-control-drift",
+      "stop_code": "UNSUPPORTED_ERROR",
+      "openfoam_started": false
+    },
+    {
+      "evaluation_id": "real-015",
+      "task_id": "step-05-re22860-boundary",
+      "group": "retrieval_only",
+      "family": "backward-step-2d",
+      "partition": "known_fault",
+      "fault_profile": "missing-boundary",
+      "stop_code": "UNSUPPORTED_ERROR",
+      "openfoam_started": false
+    },
+    {
+      "evaluation_id": "real-019",
+      "task_id": "cavity-07-re150-time",
+      "group": "cfd_memo",
+      "family": "cavity-2d",
+      "partition": "unknown_fault",
+      "fault_profile": "time-control-drift",
+      "stop_code": "UNSUPPORTED_ERROR",
+      "openfoam_started": false
+    },
+    {
+      "evaluation_id": "real-020",
+      "task_id": "step-05-re22860-boundary",
+      "group": "cfd_memo",
+      "family": "backward-step-2d",
+      "partition": "known_fault",
+      "fault_profile": "missing-boundary",
+      "stop_code": "UNSUPPORTED_ERROR",
+      "openfoam_started": false
+    }
+  ]
+}

@@ -7,6 +7,9 @@ import json
 import sys
 from pathlib import Path
 
+from cfd_memo_agent.benchmark import DEFAULT_MANIFEST, audit_benchmark
+from cfd_memo_agent.benchmark_analysis import analyze_benchmark
+from cfd_memo_agent.benchmark_run import run_benchmark
 from cfd_memo_agent.capabilities import list_capabilities
 from cfd_memo_agent.case_adapters import list_case_adapters
 from cfd_memo_agent.case_import import import_case, load_case_spec, validate_imported_case
@@ -22,6 +25,7 @@ from cfd_memo_agent.mesh_capabilities import list_mesh_capabilities
 from cfd_memo_agent.orchestrator import plan_description
 from cfd_memo_agent.physical_study import continue_physical_study, run_physical_study
 from cfd_memo_agent.preflight import build_preflight, confirm_preflight
+from cfd_memo_agent.release_bundle import DEFAULT_OUTPUT as DEFAULT_RELEASE_OUTPUT, build_release_bundle
 from cfd_memo_agent.runner import run_case
 from cfd_memo_agent.runner.execution import COMMANDS, SCENARIOS
 from cfd_memo_agent.tutorials import (
@@ -247,6 +251,35 @@ def main() -> None:
     memory_collect.add_argument("--fault", choices=FAULTS, default="missing-boundary")
     memory_collect.add_argument("--timeout", type=float, default=300.0)
 
+    benchmark_parser = subparsers.add_parser(
+        "benchmark", help="Audit frozen cross-task evaluation manifests")
+    benchmark_actions = benchmark_parser.add_subparsers(
+        dest="benchmark_action", required=True)
+    benchmark_audit = benchmark_actions.add_parser(
+        "audit", help="Validate task diversity, pairings, and registered capabilities")
+    benchmark_audit.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    benchmark_run = benchmark_actions.add_parser(
+        "run", help="Prepare or resume the frozen paired benchmark")
+    benchmark_run.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    benchmark_run.add_argument("--output-dir", type=Path)
+    benchmark_run.add_argument("--resume", type=Path)
+    benchmark_run.add_argument("--runner", required=True, choices=("simulated", "real"))
+    benchmark_run.add_argument("--limit", type=int,
+                               help="Run at most this many pending evaluations")
+    benchmark_run.add_argument("--tutorial-root", type=Path,
+                               help="OpenFOAM tutorials root containing pitzDaily")
+    benchmark_analyze = benchmark_actions.add_parser(
+        "analyze", help="Recompute M3 statistics from a completed M2 study")
+    benchmark_analyze.add_argument("--study", required=True, type=Path)
+    benchmark_analyze.add_argument("--force", action="store_true",
+                                   help="Atomically replace existing M3 outputs")
+    benchmark_package = benchmark_actions.add_parser(
+        "package", help="Build a sanitized M4 reproducibility bundle")
+    benchmark_package.add_argument("--study", required=True, type=Path)
+    benchmark_package.add_argument("--output-dir", type=Path, default=DEFAULT_RELEASE_OUTPUT)
+    benchmark_package.add_argument("--force", action="store_true",
+                                   help="Replace an existing sanitized bundle")
+
     subparsers.add_parser("model-info", help="Show redacted Stage D model configuration")
 
     args = parser.parse_args()
@@ -254,11 +287,38 @@ def main() -> None:
     if args.command in {
         "plan", "generate", "run", "diagnose", "validate", "physics-study",
         "memory-study", "model-info", "import-case", "import-mesh", "capabilities",
-        "tutorials", "resume", "memory", "new", "inspect", "history", "explain",
+        "tutorials", "resume", "memory", "benchmark",
+        "new", "inspect", "history", "explain",
     }:
         for stream in (sys.stdout, sys.stderr):
             if hasattr(stream, "reconfigure"):
                 stream.reconfigure(encoding="utf-8")
+
+    if args.command == "benchmark":
+        try:
+            if args.benchmark_action == "audit":
+                result = audit_benchmark(args.manifest)
+            elif args.benchmark_action == "run":
+                if args.resume is not None and args.output_dir is not None:
+                    parser.error("--resume 与 --output-dir 不能同时使用")
+                result = run_benchmark(
+                    manifest_path=args.manifest, output_dir=args.output_dir,
+                    resume=args.resume, runner=args.runner, limit=args.limit,
+                    tutorial_root=args.tutorial_root,
+                )
+            elif args.benchmark_action == "analyze":
+                result = analyze_benchmark(args.study, overwrite=args.force)
+            else:
+                result = build_release_bundle(
+                    args.study, output_dir=args.output_dir, overwrite=args.force,
+                )
+        except (OSError, UnicodeError, ValueError, KeyError, TypeError,
+                ModelConfigurationError) as exc:
+            parser.error(str(exc))
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        if args.benchmark_action == "run":
+            raise SystemExit(0 if result["status"] in {"completed", "partial"} else 1)
+        return
 
     if args.command in {"new", "inspect", "history", "explain"}:
         try:
