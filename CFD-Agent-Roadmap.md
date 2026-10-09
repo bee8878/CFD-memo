@@ -265,3 +265,11 @@ J2 已完成外部 Gmsh 的受控导入与真实执行：导入器限制为 2.2 
 J3 已完成阶段级安全恢复和资源保护：真实 attempt 原子保存 `stage-state.json`，网格阶段保存带 SHA-256 的 checkpoint；恢复总是创建新 attempt，核对原始输入、执行计划和 checkpoint，复用 `blockMesh/gmshToFoam` 后强制重跑 `checkMesh`。命令保留超时与进程组清理，并增加运行前磁盘空间、单日志大小限制。`result-index.json` 给输入、状态、日志、证据和最终场文件建立完整性索引。真实 Gmsh 验收先在 `checkMesh` 超时，随后从 `gmshToFoam` checkpoint 恢复并运行至 `t=10`，原失败 attempt 保持不变。
 
 K1-K3 已完成证据化长期记忆，L1-L3 已完成用户工作台。M1-M4 已完成冻结协议、20 个真实配对槽位、可复现统计和脱敏交付包。结果支持“已知圆柱配置故障可减少修正”的有限趋势，但不支持最终成功率提升或统计显著性结论。下一步不是继续堆功能，而是人工审阅公开包、选择许可证、提交并推送代码，然后以 M3 的真实边界撰写结题材料；新的场景泛化和物理验证应另建下一版协议。
+
+### N1：显式结果可视化
+
+- [x] 新增 `view --run <目录>`，从运行目录、工作流或 attempt 中选择最新完成的真实 OpenFOAM 结果。
+- [x] 打开前检查 `constant/polyMesh`，并按 `result-index.json` 复核最终 `U/p` 的大小与 SHA-256；模拟结果、缺失或被篡改的场文件不会启动 GUI。
+- [x] Windows 后端通过固定的 Ubuntu-22.04、OpenFOAM 10 环境和 WSLg 非阻塞启动 `paraFoam -builtin`；用户路径不作为 shell 命令执行。
+- [x] `run` 和批量实验保持无界面，只有用户主动执行 `view` 才弹出 ParaView；显示结果不会改变 `physical_validated`。
+- [x] 单元与 CLI 回归覆盖结果选择、模拟拒绝、网格缺失、场文件哈希、空格路径和假启动器；完整测试套件通过。

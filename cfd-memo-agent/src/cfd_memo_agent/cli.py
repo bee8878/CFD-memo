@@ -43,6 +43,7 @@ from cfd_memo_agent.workbench import (
 from cfd_memo_agent.validator import validate_case
 from cfd_memo_agent.validator.foam import read_json
 from cfd_memo_agent.validator.task import issue, new_report
+from cfd_memo_agent.visualizer import open_result
 
 
 def main() -> None:
@@ -92,6 +93,12 @@ def main() -> None:
     validate_parser = subparsers.add_parser("validate", help="Check task and case consistency")
     validate_parser.add_argument("--run", required=True, type=Path, help="C2 run directory")
     validate_parser.add_argument("--output", type=Path, help="Save a new report without overwriting")
+
+    view_parser = subparsers.add_parser(
+        "view", help="Open the newest verified real result in ParaView")
+    view_parser.add_argument(
+        "--run", required=True, type=Path,
+        help="Run, workflow, or completed attempt directory")
 
     import_parser = subparsers.add_parser(
         "import-case", help="Inspect and copy an existing OpenFOAM case safely")
@@ -289,6 +296,7 @@ def main() -> None:
         "memory-study", "model-info", "import-case", "import-mesh", "capabilities",
         "tutorials", "resume", "memory", "benchmark",
         "new", "inspect", "history", "explain",
+        "view",
     }:
         for stream in (sys.stdout, sys.stderr):
             if hasattr(stream, "reconfigure"):
@@ -338,6 +346,16 @@ def main() -> None:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         if args.command == "new":
             raise SystemExit(0 if result["status"] == "ready" else 1)
+        return
+
+    if args.command == "view":
+        try:
+            result = open_result(args.run)
+        except (OSError, UnicodeError, ValueError, KeyError, TypeError) as exc:
+            print(json.dumps({"status": "blocked", "message": str(exc)},
+                             ensure_ascii=False, indent=2))
+            raise SystemExit(1)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
         return
 
     if args.command == "model-info":

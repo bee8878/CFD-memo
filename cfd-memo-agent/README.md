@@ -359,6 +359,17 @@ validation_findings 中，不妨碍显式选择的日志模拟。
 MESH_NOT_VERIFIED 作为待执行检查保留在静态报告中，不是直接删除或跳过验证。
 环境缺失仍停止，不回退模拟。安装与手工验收步骤见 [C6 运行指南](docs/c6-real-run.md)。
 
+真实计算完成后可由用户显式打开最新的可信结果，不会在批量任务中自动弹窗：
+
+~~~powershell
+.\.venv\Scripts\python.exe -m cfd_memo_agent.cli view --run "cases/runs/你的运行或工作流目录"
+~~~
+
+`view` 只接受状态为 `completed` 的真实 attempt。它根据 `result-index.json` 校验最终
+`U/p` 的大小与 SHA-256，检查 `constant/polyMesh`，然后通过 WSLg 启动
+`paraFoam -builtin`。模拟运行、缺失结果或被修改的场文件会被拒绝。打开图形界面
+只用于查看网格和流场，不会把 `physical_validated` 改为 `true`。
+
 准入通过后的后端依次执行 blockMesh、checkMesh、icoFoam，每个命令有独立
 超时预算，失败或超时即停止后续命令。日志合并 stdout/stderr；checkMesh
 须有 Mesh OK.，其他命令须有独立的 End 行，同时检查退出码和已知错误。

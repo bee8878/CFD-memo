@@ -82,6 +82,18 @@ Foundation OpenFOAM 10 会拒绝带空格的 case 路径，因此项目使用实
 每个命令独立计时；WSL 使用 Linux watchdog 和本次进程组清理，可能有少量清理等待时间。
 不关闭整个 WSL，也不自动提高超时或修改物理参数。
 
+计算完成后，在项目目录中显式启动 ParaView：
+
+```powershell
+.\.venv\Scripts\python.exe -m cfd_memo_agent.cli view `
+  --run "cases\runs\某次真实运行或工作流目录"
+```
+
+该命令会选择最新完成的真实 attempt，复核网格、`result-evidence.json` 和
+`result-index.json` 中的 `U/p` 哈希，再使用 WSLg 启动 `paraFoam -builtin`。
+它不会重新求解，也不会自动用于批量实验。模拟结果、被修改的场文件、缺少 WSLg
+或 ParaView 时会明确停止。查看结果不等于物理验收通过。
+
 物理验收使用长时任务并运行固定的八组对照：
 
 ```powershell
